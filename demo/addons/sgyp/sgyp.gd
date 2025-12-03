@@ -107,7 +107,7 @@ class SGYPaser:
         var name    :String
         var value   :String
         var plain   :bool
-        var style   :String
+        var style   # String or null
 
         var start_mark  :Mark
         var end_mark    :Mark
@@ -437,9 +437,8 @@ class SGYPaser:
                 if key.line_index != line_index  \
                         or char_index - key.char_index > 1024:
                     if key.required:
-                        # SGYPaser.warn("while scanning a simple key", key.mark,
-                        #         "could not find expected ':'", get_mark())
-                        SGYPaser.error("while scanning a simple key %s could not find expected ':' %s" % [key.mark, get_mark()])
+                        SGYPaser.error("while scanning a simple key %s could not find expected ':' %s" 
+                        % [key.mark, get_mark()])
                     possible_simple_keys.erase(level)
 
         func save_possible_simple_key():
@@ -635,7 +634,7 @@ class SGYPaser:
 
                 # Are we allowed to start a new entry?
                 if not allow_simple_key:
-                    SGYPaser.error("sequence entries are not allowed on line %d." % line_index)
+                    SGYPaser.error("sequence entries are not allowed here." % get_mark())
 
                 # We may need to add BLOCK-SEQUENCE-START.
                 if add_indent(column_index):
@@ -665,7 +664,7 @@ class SGYPaser:
 
                 # Are we allowed to start a key (not necessary a simple)?
                 if not allow_simple_key:
-                    SGYPaser.error("mapping keys are not allowed on line %d." % line_index)
+                    SGYPaser.error("mapping keys are not allowed here" % get_mark())
 
                 # We may need to add BLOCK-MAPPING-START.
                 if add_indent(column_index):
@@ -716,7 +715,7 @@ class SGYPaser:
                     # We are allowed to start a complex value if and only if
                     # we can start a simple key.
                     if not allow_simple_key:
-                        SGYPaser.error("mapping values are not allowed on line %d." % line_index)
+                        SGYPaser.error("mapping values are not allowed here" % get_mark())
 
                 # If this value starts a new block mapping, we need to add
                 # BLOCK-MAPPING-START.  It will be detected as an error later by
@@ -939,10 +938,8 @@ class SGYPaser:
             forward(length)
             ch = peek()
             if ch not in '\u0003 \r\n':
-                # raise ScannerError("while scanning a directive", start_mark,
-                #         "expected alphabetic or numeric character, but found %r"
-                #         % ch, get_mark())
-                SGYPaser.error("while scanning a directive expected alphabetic or numeric character, but found %c" % ch)
+                SGYPaser.error("while scanning a directive %s expected alphabetic or numeric character, but found %c %s" 
+                % [start_mark, ch, get_mark()])
 
             return value
 
@@ -1035,8 +1032,8 @@ class SGYPaser:
                 length += 1
                 ch = peek(length)
             if length == 0:
-                SGYPaser.error("while scanning an %s expected alphabetic or numeric character, but found %c"
-                        % [name, ch])
+                SGYPaser.error("while scanning an %s %s expected alphabetic or numeric character, but found %c %s"
+                        % [name, start_mark, ch, get_mark()])
             var value = prefix(length)
             forward(length)
             ch = peek()
@@ -1059,7 +1056,8 @@ class SGYPaser:
                 forward(2)
                 suffix = scan_tag_uri('tag', start_mark)
                 if peek() != '>':
-                    SGYPaser.error("while parsing a tag expected '>', but found %c" % peek())
+                    SGYPaser.error("while parsing a tag %s expected '>', but found %c %s" 
+                    % [start_mark, peek(), get_mark()])
                 forward()
             elif ch in '\u0003 \t\r\n':
                 handle = null
@@ -1084,7 +1082,8 @@ class SGYPaser:
                 suffix = scan_tag_uri('tag', start_mark)
             ch = peek()
             if ch not in '\u0003 \r\n':
-                SGYPaser.error("while scanning a tag expected ' ', but found %c" % ch)
+                SGYPaser.error("while scanning a tag %s expected ' ', but found %c %s" 
+                % [start_mark, ch, get_mark()])
             var value = [handle, suffix]
             var end_mark = get_mark()
             return Token.new("TAG", value, start_mark, end_mark)
@@ -1198,7 +1197,8 @@ class SGYPaser:
             elif ch in '0123456789':
                 increment = int(ch)
                 if increment == 0:
-                    SGYPaser.error("while scanning a block scalar expected indentation indicator in the range 1-9, but found 0")
+                    SGYPaser.error("while scanning a block scalar %s expected indentation indicator in the range 1-9, but found 0 %s"
+                    % [start_mark, get_mark()])
                 forward()
                 ch = peek()
                 if ch in '+-':
@@ -1209,7 +1209,8 @@ class SGYPaser:
                     forward()
             ch = peek()
             if ch not in '\u0003 \r\n':
-                SGYPaser.error("while scanning a block scalar %s expected chomping or indentation indicators, but found %c %s"% [start_mark, ch, get_mark()])
+                SGYPaser.error("while scanning a block scalar %s expected chomping or indentation indicators, but found %c %s"
+                % [start_mark, ch, get_mark()])
             return {"chomping":chomping, "increment":increment}
 
         func scan_block_scalar_ignored_line(start_mark):
@@ -1341,7 +1342,8 @@ class SGYPaser:
             forward(length)
             var ch = peek()
             if ch == '\u0003':
-                SGYPaser.error("while scanning a quoted scalar %s found unexpected end of stream %s" % [start_mark, get_mark()])
+                SGYPaser.error("while scanning a quoted scalar %s found unexpected end of stream %s" 
+                % [start_mark, get_mark()])
             elif ch in '\r\n':
                 var line_break = scan_line_break()
                 var breaks = scan_flow_scalar_breaks(double, start_mark)
@@ -1363,7 +1365,8 @@ class SGYPaser:
                 var prefix = prefix(3)
                 if (prefix == '---' or prefix == '...')   \
                         and peek(3) in '\u0003 \t\r\n':
-                    SGYPaser.error("while scanning a quoted scalar %s found unexpected document separator %s" % [start_mark, get_mark()])
+                    SGYPaser.error("while scanning a quoted scalar %s found unexpected document separator %s"
+                    % [start_mark, get_mark()])
                 while peek() in ' \t':
                     forward()
                 if peek() in '\r\n':
@@ -1411,7 +1414,7 @@ class SGYPaser:
                 if spaces.is_empty() or peek() == '#' \
                         or (flow_level == 0 and column_index < indent):
                     break
-            return Token.new("SCALAR", ''.join(chunks), true, start_mark, end_mark)
+            return Token.new("SCALAR", ''.join(chunks), true, null, start_mark, end_mark)
 
         func scan_plain_spaces(indent, start_mark):
             # See the specification for details.
@@ -1507,9 +1510,6 @@ class SGYPaser:
                 forward()
                 for k in range(2):
                     if peek(k) not in '0123456789ABCDEFabcdef':
-                        # raise ScannerError("while scanning a %s" % name, start_mark,
-                        #         "expected URI escape sequence of 2 hexadecimal numbers, but found %r"
-                        #         % peek(k), get_mark())
                         SGYPaser.error("while scanning a %s %s expected URI escape sequence of 2 hexadecimal numbers, but found %c %s" 
                         % [name, start_mark, peek(k), get_mark()])
                 codes.append(prefix(2).hex_to_int())
@@ -2036,4 +2036,3 @@ class SGYPaser:
 
     #     func process_empty_scalar(mark):
     #         return ScalarEvent(None, None, (True, False), '', mark, mark)
-
