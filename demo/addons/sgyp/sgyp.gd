@@ -1,3 +1,9 @@
+@static_unload
+# This annotation will not take effect due to an engine bug,
+# but even so it should not cause any problems, SGYP does not use a lot of memory.
+# for more detail: https://docs.godotengine.org/en/stable/classes/class_@gdscript.html#class-gdscript-annotation-static-unload
+
+
 extends Node
 # class_name SGYP extends RefCounted
 # # You can replace the above comment and use SGYP like a normal class, 
@@ -6,17 +12,17 @@ extends Node
 static func parse(yaml_data) -> Variant:
     var yaml_data_type :String = type_string(typeof(yaml_data))
     if yaml_data_type == "String":
-        return Parser.new().load(yaml_data.to_utf8_buffer())
+        return SGYPaser.new().load(yaml_data.to_utf8_buffer())
     elif yaml_data_type == "PackedByteArray":
-        return Parser.new().load(yaml_data)
+        return SGYPaser.new().load(yaml_data)
     elif yaml_data_type == "StreamPeerBuffer":
-        return Parser.new().load(yaml_data.data_array)
+        return SGYPaser.new().load(yaml_data.data_array)
     else:
-        Parser.error("Unsupported YAML data type.")
+        SGYPaser.error("Unsupported YAML data type.")
         return null
 
 
-class Parser:
+class SGYPaser:
 
     func load(yaml_bytes:PackedByteArray) -> Variant:
         var trees = _build_serialization_tree(yaml_bytes) # stage 1:Parsing the Presentation Stream
@@ -27,6 +33,44 @@ class Parser:
         var tokens = Scanner.new(yaml_string).tokenize()
         for t in tokens:
             print(t.type)
+
+    static func soft_assert(condition: bool, message: String = "Soft assertion failed"):
+        if not condition: push_error("SGYP Error: " + message)
+
+    static func error(message: String = "Something is wrong"):
+        soft_assert(false, message)
+
+    static func warn(message: String = "Something is wrong"):
+        push_warning("SGYP Warning: " + message)
+
+    static func match_bom_return_string(yaml_bytes:PackedByteArray) -> String:
+        var character_encoding = capture_byte_order_mark(yaml_bytes)
+        var yaml_string :String
+        match character_encoding:
+            "UTF-8"               : yaml_string = yaml_bytes.get_string_from_utf8()
+            "UTF-16LE", "UTF-16BE": yaml_string = yaml_bytes.get_string_from_utf16()
+            "UTF-32LE", "UTF-32BE": yaml_string = yaml_bytes.get_string_from_utf32()
+        # Remove the BOM, if there is one
+        return yaml_string if not yaml_string.begins_with("\uFEFF") else yaml_string.erase(0, 1)
+
+    static func capture_byte_order_mark(bytes :PackedByteArray) -> String:
+        # NOTE: I don't know why, but match doesn't work for PackedByteArray.
+        var first_char := Array(bytes.slice(0, 4))
+        match first_char:
+            # Explicit BOM
+            [239, 187, 191, _  ] : return "UTF-8"
+            [255, 254, 0,   0  ] : return "UTF-32LE"
+            [255, 254, _,   _  ] : return "UTF-16LE"
+            [0,   0,   254, 255] : return "UTF-32BE"
+            [254, 255, _,   _  ] : return "UTF-16BE"
+            # ASCII first character
+            [_,   0,   0,   0  ] : return "UTF-32LE"
+            [_,   0,   _,   _  ] : return "UTF-16LE"
+            [0,   0,   0,   _  ] : return "UTF-32BE"
+            [0,   _,   _,   _  ] : return "UTF-16BE"
+            # Default
+            _                    : return "UTF-8"
+
 
     class Token:
         # Scanner produces tokens of the following types:
@@ -59,62 +103,90 @@ class Parser:
             "BLOCK_ENTRY", "FLOW_ENTRY",
             "KEY", "VALUE", "ALIAS", "ANCHOR", "TAG", "SCALAR"
             ]
-        var type:String
-        var raw_text:String
+        var type    :String
+        var name    :String
+        var value   :String
+        var plain   :bool
+        var style   :String
+
+        var start_mark  :Mark
+        var end_mark    :Mark
 
         func _init(p_type:String, ...args) -> void:
             assert(p_type in valid_types, "Token type must be one of the valid_types.")
             type = p_type
+
+            match type:
+                "DIRECTIVE":
+                    name  = args[0]
+                    value = args[1]
+                    start_mark = args[2]
+                    end_mark   = args[3]
+                "ALIAS", "ANCHOR", "TAG":
+                    value = args[0]
+                    start_mark = args[1]
+                    end_mark   = args[2]
+                "SCALAR":
+                    value = args[0]
+                    plain = args[1]
+                    style = args[2]
+                    start_mark = args[3]
+                    end_mark   = args[4]
+                _: 
+                    start_mark = args[0]
+                    end_mark   = args[1]
+
             # raw_text = p_raw_text
 
-    static func soft_assert(condition: bool, message: String = "Soft assertion failed."):
-        if not condition: push_error("SGYP Error: " + message)
-
-    static func error(message: String = "Something is wrong."):
-        soft_assert(false, message)
-
-    static func warn(message: String = "Something is wrong."):
-        push_warning("SGYP Warning: " + message)
-
-    static func match_bom_return_string(yaml_bytes:PackedByteArray) -> String:
-        var character_encoding = capture_byte_order_mark(yaml_bytes)
-        var yaml_string :String
-        match character_encoding:
-            "UTF-8"               : yaml_string = yaml_bytes.get_string_from_utf8()
-            "UTF-16LE", "UTF-16BE": yaml_string = yaml_bytes.get_string_from_utf16()
-            "UTF-32LE", "UTF-32BE": yaml_string = yaml_bytes.get_string_from_utf32()
-        # Remove the BOM, if there is one
-        return yaml_string if not yaml_string.begins_with("\uFEFF") else yaml_string.erase(0, 1)
-
-    static func capture_byte_order_mark(bytes :PackedByteArray) -> String:
-        # NOTE: I don't know why, but match doesn't work for PackedByteArray.
-        var first_char := Array(bytes.slice(0, 4))
-        match first_char:
-            # Explicit BOM
-            [239, 187, 191, _  ] : return "UTF-8"
-            [255, 254, 0,   0  ] : return "UTF-32LE"
-            [255, 254, _,   _  ] : return "UTF-16LE"
-            [0,   0,   254, 255] : return "UTF-32BE"
-            [254, 255, _,   _  ] : return "UTF-16BE"
-            # ASCII first character
-            [_,   0,   0,   0  ] : return "UTF-32LE"
-            [_,   0,   _,   _  ] : return "UTF-16LE"
-            [0,   0,   0,   _  ] : return "UTF-32BE"
-            [0,   _,   _,   _  ] : return "UTF-16BE"
-            # Default
-            _                    : return "UTF-8"
+    class Mark:
+        static var source_name := "<unknown stream>"
+        var yaml_string     :String
+        var char_index      :int
+        var line_index      :int
+        var column_index    :int
 
 
+        func _init(p_yaml_string, p_char_index, p_line_index, p_column_index):
+            yaml_string = p_yaml_string
+            char_index = p_char_index
+            line_index = p_line_index
+            column_index = p_column_index
 
-    # static func remove_indent(line, indent_level):
-    #     return line.trim_prefix(" ".repeat(indent_level*2)) if indent_level != 0 else line
+        func get_snippet(indent = 4, max_length = 75):
+            if yaml_string == null or yaml_string.is_empty():
+                return null
+            var head = ''
+            var start = char_index
+            while start > 0 and yaml_string[start-1] not in '\u0003\r\n':
+                start -= 1
+                if char_index-start > max_length/2-1:
+                    head = ' ... '
+                    start += 5
+                    break
+            var tail = ''
+            var end = char_index
+            while end < len(yaml_string) and yaml_string[end] not in '\u0003\r\n':
+                end += 1
+                if end-char_index > max_length/2-1:
+                    tail = ' ... '
+                    end -= 5
+                    break
+            var snippet = yaml_string.substr(start, end-start)
+            return ' '*indent + head + snippet + tail + '\n'  \
+                    + ' '*(indent+char_index-start+len(head)) + '^'
 
-
+        func _to_string() -> String:
+            var snippet = get_snippet()
+            var where = "  in \"%s\", line %d, column %d"   \
+                    % [source_name, line_index+1, column_index+1]
+            if snippet != null:
+                where += ":\n"+snippet
+            return where
 
     class Scanner:
         # The Scanner behaves very similarly to PyYAML's Scanner and Reader, 
         # but SGYP doesn't need to handle streaming data, 
-        # so it outputs the results (i.e tokens) to the Parser all at once.
+        # so it outputs the results (i.e tokens) to the SGYPaser all at once.
 
         # and '\x85\u2028\u2029' is not supported.
 
@@ -144,6 +216,9 @@ class Parser:
                 elif ch != '\uFEFF':
                     column_index += 1
                 length -= 1
+
+        func get_mark() -> Mark:
+            return Mark.new(yaml_string, char_index, line_index, column_index)
 
         # Had we reached the end of the stream?
         var done := false
@@ -331,10 +406,7 @@ class Parser:
                 return fetch_plain()
 
             # No? It's an error. Let's produce a nice error message.
-            Parser.error("while scanning for the next token found character %c that cannot start any token." % ch)
-
-
-
+            SGYPaser.error("while scanning for the next token found character %c that cannot start any token %s" % [ch, get_mark()])
 
         # Simple keys treatment.
 
@@ -365,9 +437,9 @@ class Parser:
                 if key.line_index != line_index  \
                         or char_index - key.char_index > 1024:
                     if key.required:
-                        # Parser.warn("while scanning a simple key", key.mark,
+                        # SGYPaser.warn("while scanning a simple key", key.mark,
                         #         "could not find expected ':'", get_mark())
-                        Parser.error("while scanning a simple key could not find expected ':'.")
+                        SGYPaser.error("while scanning a simple key %s could not find expected ':' %s" % [key.mark, get_mark()])
                     possible_simple_keys.erase(level)
 
         func save_possible_simple_key():
@@ -389,6 +461,7 @@ class Parser:
                     "token_number":token_number,
                     "required":required,
                     "line_index":line_index,
+                    "mark":get_mark()
                 }
                 possible_simple_keys[flow_level] = key
 
@@ -398,8 +471,7 @@ class Parser:
                 var key = possible_simple_keys[flow_level]
                 
                 if key.required:
-                        Parser.error("while scanning a simple key could not find expected ':'.")
-
+                        SGYPaser.error("while scanning a simple key %s could not find expected ':' %s" % [key.mark, get_mark()])
 
                 possible_simple_keys.erase(flow_level)
 
@@ -425,7 +497,8 @@ class Parser:
             # In block context, we may need to issue the BLOCK-END tokens.
             while indent > column:
                 indent = indents.pop_back()
-                tokens.append(Token.new("BLOCK_END"))
+                var mark = get_mark()
+                tokens.append(Token.new("BLOCK_END", mark, mark))
 
         func add_indent(column:int):
             # Check if we need to increase indentation.
@@ -442,8 +515,8 @@ class Parser:
             # last token.
             
             # Add STREAM-START.
-            tokens.append(Token.new("STREAM_START"))
-
+            var mark = get_mark()
+            tokens.append(Token.new("STREAM_START", mark, mark))
 
         func fetch_stream_end():
 
@@ -456,7 +529,8 @@ class Parser:
             possible_simple_keys = {}
             
             # Add STREAM-END.
-            tokens.append(Token.new("STREAM_END"))
+            var mark = get_mark()
+            tokens.append(Token.new("STREAM_END", mark, mark))
 
             # The steam is finished.
             done = true
@@ -490,8 +564,10 @@ class Parser:
             allow_simple_key = false
 
             # Add DOCUMENT-START or DOCUMENT-END.
+            var start_mark = get_mark()
             forward(3)
-            tokens.append(Token.new(token_type))
+            var end_mark = get_mark()
+            tokens.append(Token.new(token_type, start_mark, end_mark))
 
         func fetch_flow_sequence_start():
             fetch_flow_collection_start("FLOW_SEQUENCE_START")
@@ -511,8 +587,10 @@ class Parser:
             allow_simple_key = true
 
             # Add FLOW-SEQUENCE-START or FLOW-MAPPING-START.
+            var start_mark = get_mark()
             forward()
-            tokens.append(Token.new(token_type))
+            var end_mark = get_mark()
+            tokens.append(Token.new(token_type, start_mark, end_mark))
 
         func fetch_flow_sequence_end():
             fetch_flow_collection_end("FLOW_SEQUENCE_END")
@@ -532,8 +610,10 @@ class Parser:
             allow_simple_key = false
 
             # Add FLOW-SEQUENCE-END or FLOW-MAPPING-END.
+            var start_mark = get_mark()
             forward()
-            tokens.append(Token.new(token_type))
+            var end_mark = get_mark()
+            tokens.append(Token.new(token_type, start_mark, end_mark))
 
         func fetch_flow_entry():
 
@@ -544,8 +624,10 @@ class Parser:
             remove_possible_simple_key()
 
             # Add FLOW-ENTRY.
+            var start_mark = get_mark()
             forward()
-            tokens.append(Token.new("FLOW_ENTRY"))
+            var end_mark = get_mark()
+            tokens.append(Token.new("FLOW_ENTRY", start_mark, end_mark))
 
         func fetch_block_entry():
             # Block context needs additional checks.
@@ -553,14 +635,15 @@ class Parser:
 
                 # Are we allowed to start a new entry?
                 if not allow_simple_key:
-                    Parser.error("sequence entries are not allowed on line %d." % line_index)
+                    SGYPaser.error("sequence entries are not allowed on line %d." % line_index)
 
                 # We may need to add BLOCK-SEQUENCE-START.
                 if add_indent(column_index):
-                    tokens.append(Token.new("BLOCK_SEQUENCE_START"))
+                    var mark = get_mark()
+                    tokens.append(Token.new("BLOCK_SEQUENCE_START", mark, mark))
 
             # It's an error for the block entry to occur in the flow context,
-            # but we let the parser detect this.
+            # but we let the SGYPaser detect this.
             else:
                 pass
 
@@ -570,8 +653,10 @@ class Parser:
             # Reset possible simple key on the current level.
             remove_possible_simple_key()
             # Add BLOCK-ENTRY.
+            var start_mark = get_mark()
             forward()
-            tokens.append(Token.new("BLOCK_ENTRY"))
+            var end_mark = get_mark()
+            tokens.append(Token.new("BLOCK_ENTRY", start_mark, end_mark))
 
         func fetch_key():
             
@@ -580,11 +665,12 @@ class Parser:
 
                 # Are we allowed to start a key (not necessary a simple)?
                 if not allow_simple_key:
-                    Parser.error("mapping keys are not allowed on line %d." % line_index)
+                    SGYPaser.error("mapping keys are not allowed on line %d." % line_index)
 
                 # We may need to add BLOCK-MAPPING-START.
                 if add_indent(column_index):
-                    tokens.append(Token.new("BLOCK_MAPPING_START"))
+                    var mark = get_mark()
+                    tokens.append(Token.new("BLOCK_MAPPING_START", mark, mark))
 
             # Simple keys are allowed after '?' in the block context.
             allow_simple_key = flow_level == 0
@@ -593,8 +679,10 @@ class Parser:
             remove_possible_simple_key()
 
             # Add KEY.
+            var start_mark = get_mark()
             forward()
-            tokens.append(Token.new("KEY"))
+            var end_mark = get_mark()
+            tokens.append(Token.new("KEY", start_mark, end_mark))
 
         func fetch_value():
 
@@ -605,7 +693,7 @@ class Parser:
                 var key = possible_simple_keys[flow_level]
                 possible_simple_keys.erase(flow_level)
                 tokens.insert(key.token_number,
-                        Token.new("KEY"))
+                        Token.new("KEY", key.mark, key.mark))
 
                 # If this key starts a new block mapping, we need to add
                 # BLOCK-MAPPING-START.
@@ -621,18 +709,18 @@ class Parser:
             else:
                 
                 # Block context needs additional checks.
-                # (Do we really need them? They will be caught by the parser
+                # (Do we really need them? They will be caught by the SGYPaser
                 # anyway.)
                 if flow_level == 0:
 
                     # We are allowed to start a complex value if and only if
                     # we can start a simple key.
                     if not allow_simple_key:
-                        Parser.error("mapping values are not allowed on line %d." % line_index)
+                        SGYPaser.error("mapping values are not allowed on line %d." % line_index)
 
                 # If this value starts a new block mapping, we need to add
                 # BLOCK-MAPPING-START.  It will be detected as an error later by
-                # the parser.
+                # the SGYPaser.
                 if flow_level == 0:
                     if add_indent(column_index):
                         # tokens.append(BlockMappingStartToken(mark, mark))
@@ -646,8 +734,10 @@ class Parser:
                 remove_possible_simple_key()
 
             # Add VALUE.
+            var start_mark = get_mark()
             forward()
-            tokens.append(Token.new("VALUE"))
+            var end_mark = get_mark()
+            tokens.append(Token.new("VALUE", start_mark, end_mark))
 
         func fetch_alias():
 
@@ -816,20 +906,25 @@ class Parser:
 
         func scan_directive():
             # See the specification for details.
+            var start_mark = get_mark()
+            var end_mark = null
             forward()
-            var name = scan_directive_name()
+            var name = scan_directive_name(start_mark)
             var value = null
             if name == 'YAML':
-                value = scan_yaml_directive_value()
+                value = scan_yaml_directive_value(start_mark)
+                end_mark = get_mark()
             elif name == 'TAG':
-                value = scan_tag_directive_value()
+                value = scan_tag_directive_value(start_mark)
+                end_mark = get_mark()
             else:
+                end_mark = get_mark()
                 while peek() not in '\u0003\r\n':
                     forward()
-            scan_directive_ignored_line()
-            return Token.new("DIRECTIVE", name, value)
+            scan_directive_ignored_line(start_mark)
+            return Token.new("DIRECTIVE", name, value, start_mark, end_mark)
 
-        func scan_directive_name():
+        func scan_directive_name(start_mark):
             # See the specification for details.
             var length = 0
             var ch = peek(length)
@@ -838,10 +933,8 @@ class Parser:
                 length += 1
                 ch = peek(length)
             if not length:
-                # raise ScannerError("while scanning a directive", start_mark,
-                #         "expected alphabetic or numeric character, but found %r"
-                #         % ch, get_mark())
-                Parser.error("while scanning a directive expected alphabetic or numeric character, but found %c" % ch)
+                SGYPaser.error("while scanning a directive %s expected alphabetic or numeric character, but found %c %s" 
+                % [start_mark, ch, get_mark()])
             var value = prefix(length)
             forward(length)
             ch = peek()
@@ -849,28 +942,31 @@ class Parser:
                 # raise ScannerError("while scanning a directive", start_mark,
                 #         "expected alphabetic or numeric character, but found %r"
                 #         % ch, get_mark())
-                Parser.error("while scanning a directive expected alphabetic or numeric character, but found %c" % ch)
+                SGYPaser.error("while scanning a directive expected alphabetic or numeric character, but found %c" % ch)
 
             return value
 
-        func scan_yaml_directive_value():
+        func scan_yaml_directive_value(start_mark):
             # See the specification for details.
             while peek() in '\t ':
                 forward()
-            var major = scan_yaml_directive_number()
+            var major = scan_yaml_directive_number(start_mark)
             if peek() != '.':
-                Parser.error("while scanning YAML directive expected a digit or '.', but found %c" % peek())
+                SGYPaser.error("while scanning YAML directive %s expected a digit or '.', but found %c %s" 
+                % [start_mark, peek(), get_mark()])
             forward()
-            var minor = scan_yaml_directive_number()
+            var minor = scan_yaml_directive_number(start_mark)
             if peek() not in '\u0003 \r\n':
-                Parser.error("while scanning YAML directive expected a digit or ' ', but found %c" % peek())
+                SGYPaser.error("while scanning YAML directive %s expected a digit or ' ', but found %c %s" 
+                % [start_mark, peek(), get_mark()])
             return [major, minor]
 
-        func scan_yaml_directive_number():
+        func scan_yaml_directive_number(start_mark):
             # See the specification for details.
             var ch = peek()
             if not ('0' <= ch <= '9'):
-                Parser.error("while scanning YAML directive expected a digit, but found %c" % peek())
+                SGYPaser.error("while scanning YAML directive %s expected a digit, but found %c %s" 
+                % [start_mark, peek(), get_mark()])
             var length = 0
             while '0' <= peek(length) <= '9':
                 length += 1
@@ -878,33 +974,35 @@ class Parser:
             forward(length)
             return value
 
-        func scan_tag_directive_value():
+        func scan_tag_directive_value(start_mark):
             # See the specification for details.
             while peek() == ' ':
                 forward()
-            var handle = scan_tag_directive_handle()
+            var handle = scan_tag_directive_handle(start_mark)
             while peek() == ' ':
                 forward()
-            var prefix = scan_tag_directive_prefix()
+            var prefix = scan_tag_directive_prefix(start_mark)
             return [handle, prefix]
 
-        func scan_tag_directive_handle():
+        func scan_tag_directive_handle(start_mark):
             # See the specification for details.
-            var value = scan_tag_handle('directive')
+            var value = scan_tag_handle('directive', start_mark)
             var ch = peek()
             if ch != ' ':
-                Parser.error("while scanning TAG directive expected ' ', but found %c" % peek())
+                SGYPaser.error("while scanning TAG directive %s expected ' ', but found %c %s" 
+                % [start_mark, peek(), get_mark()])
             return value
 
-        func scan_tag_directive_prefix():
+        func scan_tag_directive_prefix(start_mark):
             # See the specification for details.
-            var value = scan_tag_uri('directive')
+            var value = scan_tag_uri('directive', start_mark)
             var ch = peek()
             if ch not in '\u0003 \r\n':
-                Parser.error("while scanning TAG directive expected ' ', but found %c" % peek())
+                SGYPaser.error("while scanning TAG directive %s expected ' ', but found %c %s" 
+                % [start_mark, peek(), get_mark()])
             return value
 
-        func scan_directive_ignored_line():
+        func scan_directive_ignored_line(start_mark):
             # See the specification for details.
             while peek() == ' ':
                 forward()
@@ -913,7 +1011,8 @@ class Parser:
                     forward()
             var ch = peek()
             if ch not in '\u0003\r\n':
-                Parser.error("while scanning TAG directive expected a comment or a line break, but found %c" % peek())
+                SGYPaser.error("while scanning TAG directive %s expected a comment or a line break, but found %c %s" 
+                % [start_mark, peek(), get_mark()])
             scan_line_break()
 
         func scan_anchor(token_type:String):
@@ -925,6 +1024,7 @@ class Parser:
             # and
             #   [ *alias , "value" ]
             # Therefore we restrict aliases to numbers and ASCII letters.
+            var start_mark = get_mark()
             var indicator = peek()
             var name = 'alias' if indicator == '*' else 'anchor'
             forward()
@@ -935,18 +1035,21 @@ class Parser:
                 length += 1
                 ch = peek(length)
             if length == 0:
-                Parser.error("while scanning an %s expected alphabetic or numeric character, but found %c"
+                SGYPaser.error("while scanning an %s expected alphabetic or numeric character, but found %c"
                         % [name, ch])
             var value = prefix(length)
             forward(length)
             ch = peek()
             if ch not in '\u0003 \t\r\n?:,]}%@`':
-                Parser.error("while scanning an %s expected alphabetic or numeric character, but found %c"
-                        % [name, ch])
-            return Token.new(token_type, value)
+                SGYPaser.error("while scanning an %s %s expected alphabetic or numeric character, but found %c %s"
+                        % [name, start_mark, ch, get_mark()])
+
+            var end_mark = get_mark()
+            return Token.new(token_type, value, start_mark, end_mark)
 
         func scan_tag():
             # See the specification for details.
+            var start_mark = get_mark()
             var ch = peek(1)
             var suffix
             var handle
@@ -954,9 +1057,9 @@ class Parser:
             if ch == '<':
                 handle = null
                 forward(2)
-                suffix = scan_tag_uri('tag')
+                suffix = scan_tag_uri('tag', start_mark)
                 if peek() != '>':
-                    Parser.error("while parsing a tag expected '>', but found %c" % peek())
+                    SGYPaser.error("while parsing a tag expected '>', but found %c" % peek())
                 forward()
             elif ch in '\u0003 \t\r\n':
                 handle = null
@@ -974,16 +1077,17 @@ class Parser:
                     
                 handle = '!'
                 if use_handle:
-                    handle = scan_tag_handle('tag')
+                    handle = scan_tag_handle('tag', start_mark)
                 else:
                     handle = '!'
                     forward()
-                suffix = scan_tag_uri('tag')
+                suffix = scan_tag_uri('tag', start_mark)
             ch = peek()
             if ch not in '\u0003 \r\n':
-                Parser.error("while scanning a tag expected ' ', but found %c" % ch)
+                SGYPaser.error("while scanning a tag expected ' ', but found %c" % ch)
             var value = [handle, suffix]
-            return Token.new("TAG", value)
+            var end_mark = get_mark()
+            return Token.new("TAG", value, start_mark, end_mark)
 
         func scan_block_scalar(style):
             # See the specification for details.
@@ -991,13 +1095,15 @@ class Parser:
             var folded = true if style == '>' else false
 
             var chunks = []
+            var start_mark = get_mark()
+            var end_mark
 
             # Scan the header.
             forward()
-            var temp_dic  = scan_block_scalar_indicators()
+            var temp_dic  = scan_block_scalar_indicators(start_mark)
             var chomping  = temp_dic.chomping
             var increment = temp_dic.increment
-            scan_block_scalar_ignored_line()
+            scan_block_scalar_ignored_line(start_mark)
 
             # Determine the indentation level and go to the first non-empty line.
             var min_indent = indent+1
@@ -1008,12 +1114,15 @@ class Parser:
                 min_indent = 1
             if increment == null:
                 temp_dic = scan_block_scalar_indentation()
-                breaks = temp_dic.breaks
-                var max_indent = breaks.max_indent
+                breaks = temp_dic.chunks
+                end_mark = temp_dic.end_mark
+                var max_indent = temp_dic.max_indent
                 indent = max(min_indent, max_indent)
             else:
                 indent = min_indent+increment-1
-                breaks = scan_block_scalar_breaks(indent)
+                temp_dic = scan_block_scalar_breaks(indent)
+                breaks = temp_dic.chunks
+                end_mark = temp_dic.end_mark
             var line_break = ''
 
             # Scan the inner part of the block scalar.
@@ -1027,7 +1136,9 @@ class Parser:
                 chunks.append(prefix(length))
                 forward(length)
                 line_break = scan_line_break()
-                breaks = scan_block_scalar_breaks(indent)
+                temp_dic = scan_block_scalar_breaks(indent)
+                breaks = temp_dic.chunks
+                end_mark = temp_dic.end_mark
                 if column_index == indent and peek() != '\u0003':
 
                     # Unfortunately, folding rules are ambiguous.
@@ -1064,9 +1175,9 @@ class Parser:
             # We are done.
             # return ScalarToken(''.join(chunks), false, start_mark, end_mark,
             #         style)
-            return Token.new("SCALAR", ''.join(chunks), false, style)
+            return Token.new("SCALAR", ''.join(chunks), false, style, start_mark, end_mark)
 
-        func scan_block_scalar_indicators():
+        func scan_block_scalar_indicators(start_mark):
             # See the specification for details.
             var chomping = null
             var increment = null
@@ -1081,12 +1192,13 @@ class Parser:
                 if ch in '0123456789':
                     increment = int(ch)
                     if increment == 0:
-                        Parser.error("while scanning a block scalar expected indentation indicator in the range 1-9, but found 0")
+                        SGYPaser.error("while scanning a block scalar %s expected indentation indicator in the range 1-9, but found 0 %s"
+                        % [start_mark, get_mark()])
                     forward()
             elif ch in '0123456789':
                 increment = int(ch)
                 if increment == 0:
-                    Parser.error("while scanning a block scalar expected indentation indicator in the range 1-9, but found 0")
+                    SGYPaser.error("while scanning a block scalar expected indentation indicator in the range 1-9, but found 0")
                 forward()
                 ch = peek()
                 if ch in '+-':
@@ -1097,10 +1209,10 @@ class Parser:
                     forward()
             ch = peek()
             if ch not in '\u0003 \r\n':
-                Parser.error("while scanning a block scalar expected chomping or indentation indicators, but found %c"% ch)
+                SGYPaser.error("while scanning a block scalar %s expected chomping or indentation indicators, but found %c %s"% [start_mark, ch, get_mark()])
             return {"chomping":chomping, "increment":increment}
 
-        func scan_block_scalar_ignored_line():
+        func scan_block_scalar_ignored_line(start_mark):
             # See the specification for details.
             while peek() == ' ':
                 forward()
@@ -1109,32 +1221,37 @@ class Parser:
                     forward()
             var ch = peek()
             if ch not in '\u0003\r\n':
-                Parser.error("while scanning a block scalar expected a comment or a line break, but found %c" % ch)
+                SGYPaser.error("while scanning a block scalar %s expected a comment or a line break, but found %c %s" 
+                % [start_mark, ch, get_mark()])
             scan_line_break()
 
         func scan_block_scalar_indentation():
             # See the specification for details.
             var chunks = []
             var max_indent = 0
+            var end_mark = get_mark()
             while peek() in ' \r\n':
                 if peek() != ' ':
                     chunks.append(scan_line_break())
+                    end_mark = get_mark()
                 else:
                     forward()
                     if column_index > max_indent:
                         max_indent = column_index
-            return {"chunks":chunks, "max_indent":max_indent}
+            return {"chunks":chunks, "max_indent":max_indent, "end_mark":end_mark}
 
         func scan_block_scalar_breaks(indent):
             # See the specification for details.
             var chunks = []
+            var end_mark = get_mark()
             while column_index < indent and peek() == ' ':
                 forward()
             while peek() in '\r\n':
                 chunks.append(scan_line_break())
+                end_mark = get_mark()
                 while column_index < indent and peek() == ' ':
                     forward()
-            return chunks
+            return {"chunks":chunks, "end_mark":end_mark}
 
         func scan_flow_scalar(style):
             # See the specification for details.
@@ -1145,17 +1262,16 @@ class Parser:
             # that document separators are not included in scalars.
             var double = true if style == '"' else false
             var chunks = []
-            # var start_mark = get_mark()
+            var start_mark = get_mark()
             var quote = peek()
             forward()
-            chunks.extend(scan_flow_scalar_non_spaces(double))
+            chunks.extend(scan_flow_scalar_non_spaces(double, start_mark))
             while peek() != quote:
-                chunks.extend(scan_flow_scalar_spaces(double))
-                chunks.extend(scan_flow_scalar_non_spaces(double))
+                chunks.extend(scan_flow_scalar_spaces(double, start_mark))
+                chunks.extend(scan_flow_scalar_non_spaces(double, start_mark))
             forward()
-            # return ScalarToken(''.join(chunks), false, start_mark, end_mark,
-            #         style)
-            return Token.new("SCALAR", ''.join(chunks), false, style)
+            var end_mark = get_mark()
+            return Token.new("SCALAR", ''.join(chunks), false, style, start_mark, end_mark)
 
 
         static var escape_replacements = {
@@ -1173,7 +1289,7 @@ class Parser:
             'U':    8,
         }
 
-        func scan_flow_scalar_non_spaces(double):
+        func scan_flow_scalar_non_spaces(double, start_mark):
             # See the specification for details.
             var chunks = []
             while true:
@@ -1201,19 +1317,21 @@ class Parser:
                         forward()
                         for k in range(length):
                             if peek(k) not in '0123456789ABCDEFabcdef':
-                                Parser.error("while scanning a double-quoted scalar expected escape sequence of %d hexadecimal numbers, but found %c" % [length, peek(k)])
+                                SGYPaser.error("while scanning a double-quoted scalar %s expected escape sequence of %d hexadecimal numbers, but found %c %s" 
+                                % [start_mark, length, peek(k), get_mark()])
                         var code = prefix(length).hex_to_int()
                         chunks.append(char(code))
                         forward(length)
                     elif ch in '\r\n':
                         scan_line_break()
-                        chunks.extend(scan_flow_scalar_breaks(double))
+                        chunks.extend(scan_flow_scalar_breaks(double, start_mark))
                     else:
-                        Parser.error("while scanning a double-quoted scalar found unknown escape character %c" % ch)
+                        SGYPaser.error("while scanning a double-quoted scalar %s found unknown escape character %c %s" 
+                        % [start_mark, ch, get_mark()])
                 else:
                     return chunks
 
-        func scan_flow_scalar_spaces(double):
+        func scan_flow_scalar_spaces(double, start_mark):
             # See the specification for details.
             var chunks = []
             var length = 0
@@ -1223,10 +1341,10 @@ class Parser:
             forward(length)
             var ch = peek()
             if ch == '\u0003':
-                Parser.error("while scanning a quoted scalar found unexpected end of stream")
+                SGYPaser.error("while scanning a quoted scalar %s found unexpected end of stream %s" % [start_mark, get_mark()])
             elif ch in '\r\n':
                 var line_break = scan_line_break()
-                var breaks = scan_flow_scalar_breaks(double)
+                var breaks = scan_flow_scalar_breaks(double, start_mark)
                 if line_break != '\n':
                     chunks.append(line_break)
                 elif not breaks:
@@ -1236,7 +1354,7 @@ class Parser:
                 chunks.append(whitespaces)
             return chunks
 
-        func scan_flow_scalar_breaks(double):
+        func scan_flow_scalar_breaks(double, start_mark):
             # See the specification for details.
             var chunks = []
             while true:
@@ -1245,7 +1363,7 @@ class Parser:
                 var prefix = prefix(3)
                 if (prefix == '---' or prefix == '...')   \
                         and peek(3) in '\u0003 \t\r\n':
-                    Parser.error("while scanning a quoted scalar found unexpected document separator")
+                    SGYPaser.error("while scanning a quoted scalar %s found unexpected document separator %s" % [start_mark, get_mark()])
                 while peek() in ' \t':
                     forward()
                 if peek() in '\r\n':
@@ -1260,8 +1378,8 @@ class Parser:
             # We also keep track of the `allow_simple_key` flag here.
             # Indentation rules are loosed for the flow context.
             var chunks = []
-            # var start_mark = get_mark()
-            # var end_mark = start_mark
+            var start_mark = get_mark()
+            var end_mark = start_mark
             var indent = indent+1
             # We allow zero indentation for scalars, but then we need to check for
             # document separators at the beginning of the line.
@@ -1288,16 +1406,14 @@ class Parser:
                 chunks.append_array(spaces)
                 chunks.append(prefix(length))
                 forward(length)
-                # end_mark = get_mark()
-                spaces = scan_plain_spaces(indent)
+                end_mark = get_mark()
+                spaces = scan_plain_spaces(indent, start_mark)
                 if spaces.is_empty() or peek() == '#' \
                         or (flow_level == 0 and column_index < indent):
                     break
-            # return ScalarToken(''.join(chunks), true, start_mark, end_mark)
-            return Token.new("SCALAR", ''.join(chunks), true)
+            return Token.new("SCALAR", ''.join(chunks), true, start_mark, end_mark)
 
-
-        func scan_plain_spaces(indent):
+        func scan_plain_spaces(indent, start_mark):
             # See the specification for details.
             # The specification is really confusing about tabs in plain scalars.
             # We just forbid them completely. Do not use tabs in YAML!
@@ -1334,15 +1450,14 @@ class Parser:
                 chunks.append(whitespaces)
             return chunks
 
-        func scan_tag_handle(name):
+        func scan_tag_handle(name, start_mark):
             # See the specification for details.
             # For some strange reasons, the specification does not allow '_' in
             # tag handles. I have allowed it anyway.
             var ch = peek()
             if ch != '!':
-                # raise ScannerError("while scanning a %s" % name, start_mark,
-                #         "expected '!', but found %r" % ch, get_mark())
-                Parser.error("while scanning a %s expected '!', but found %c" % [name, ch])
+                SGYPaser.error("while scanning a %s %s expected '!', but found %c %s" 
+                % [name, start_mark, ch, get_mark()])
             var length = 1
             ch = peek(length)
             if ch != ' ':
@@ -1352,14 +1467,14 @@ class Parser:
                     ch = peek(length)
                 if ch != '!':
                     forward(length)
-                    # raise ScannerError("while scanning a %s" % name, start_mark,
-                    #         "expected '!', but found %r" % ch, get_mark())
+                    SGYPaser.error("while scanning a %s %s expected '!', but found %c %s" 
+                    % [name, start_mark, ch, get_mark()])
                 length += 1
             var value = prefix(length)
             forward(length)
             return value
 
-        func scan_tag_uri(name):
+        func scan_tag_uri(name, start_mark):
             # See the specification for details.
             # Note: we do not check if URI is well-formed.
             var chunks = []
@@ -1371,7 +1486,7 @@ class Parser:
                     chunks.append(prefix(length))
                     forward(length)
                     length = 0
-                    chunks.append(scan_uri_escapes(name))
+                    chunks.append(scan_uri_escapes(name, start_mark))
                 else:
                     length += 1
                 ch = peek(length)
@@ -1380,12 +1495,11 @@ class Parser:
                 forward(length)
                 length = 0
             if not chunks:
-                # raise ScannerError("while parsing a %s" % name, start_mark,
-                #         "expected URI, but found %r" % ch, get_mark())
-                Parser.error("while parsing a %s expected URI, but found %c" % [name, ch])
+                SGYPaser.error("while parsing a %s %s expected URI, but found %c %s" 
+                % [name, start_mark, ch, get_mark()])
             return ''.join(chunks)
 
-        func scan_uri_escapes(name):
+        func scan_uri_escapes(name, start_mark):
             # See the specification for details.
             var codes = []
             # var mark = get_mark()
@@ -1396,7 +1510,8 @@ class Parser:
                         # raise ScannerError("while scanning a %s" % name, start_mark,
                         #         "expected URI escape sequence of 2 hexadecimal numbers, but found %r"
                         #         % peek(k), get_mark())
-                        Parser.error("while scanning a %s expected URI escape sequence of 2 hexadecimal numbers, but found  %c" % [name, peek(k)])
+                        SGYPaser.error("while scanning a %s %s expected URI escape sequence of 2 hexadecimal numbers, but found %c %s" 
+                        % [name, start_mark, peek(k), get_mark()])
                 codes.append(prefix(2).hex_to_int())
                 forward(2)
 
@@ -1405,10 +1520,520 @@ class Parser:
             #     raise ScannerError("while scanning a %s" % name, start_mark, str(exc), mark)
             return value
 
-
         func scan_line_break():
             var ch = peek()
             if ch == '\n':
                 forward()
                 return '\n'
             return ''
+
+    # class Pasere:
+    #     static var default_tags = {
+    #         "!" : "!",
+    #         "!!" : 'tag:yaml.org,2002:'
+    #     }
+
+    #     func __init__():
+    #         current_event = None
+    #         yaml_version = None
+    #         tag_handles = {}
+    #         states = []
+    #         marks = []
+    #         state = parse_stream_start
+
+    #     func check_event(*choices):
+    #         # Check the type of the next event.
+    #         if current_event is None:
+    #             if state:
+    #                 current_event = state()
+    #         if current_event is not None:
+    #             if not choices:
+    #                 return True
+    #             for choice in choices:
+    #                 if isinstance(current_event, choice):
+    #                     return True
+    #         return False
+
+    #     func peek_event():
+    #         # Get the next event.
+    #         if current_event is None:
+    #             if state:
+    #                 current_event = state()
+    #         return current_event
+
+    #     func get_event():
+    #         # Get the next event and proceed further.
+    #         if current_event is None:
+    #             if state:
+    #                 current_event = state()
+    #         value = current_event
+    #         current_event = None
+    #         return value
+
+    #     # stream    ::= STREAM-START implicit_document? explicit_document* STREAM-END
+    #     # implicit_document ::= block_node DOCUMENT-END*
+    #     # explicit_document ::= DIRECTIVE* DOCUMENT-START block_node? DOCUMENT-END*
+
+    #     func parse_stream_start():
+
+    #         # Parse the stream start.
+    #         token = get_token()
+    #         event = StreamStartEvent(token.start_mark, token.end_mark,
+    #                 encoding=token.encoding)
+
+    #         # Prepare the next state.
+    #         state = parse_implicit_document_start
+
+    #         return event
+
+    #     func parse_implicit_document_start():
+
+    #         # Parse an implicit document.
+    #         if not check_token(DirectiveToken, DocumentStartToken,
+    #                 StreamEndToken):
+    #             tag_handles = DEFAULT_TAGS
+    #             token = peek_token()
+    #             start_mark = end_mark = token.start_mark
+    #             event = DocumentStartEvent(start_mark, end_mark,
+    #                     explicit=False)
+
+    #             # Prepare the next state.
+    #             states.append(parse_document_end)
+    #             state = parse_block_node
+
+    #             return event
+
+    #         else:
+    #             return parse_document_start()
+
+    #     func parse_document_start():
+
+    #         # Parse any extra document end indicators.
+    #         while check_token(DocumentEndToken):
+    #             get_token()
+
+    #         # Parse an explicit document.
+    #         if not check_token(StreamEndToken):
+    #             token = peek_token()
+    #             start_mark = token.start_mark
+    #             version, tags = process_directives()
+    #             if not check_token(DocumentStartToken):
+    #                 raise ParserError(None, None,
+    #                         "expected '<document start>', but found %r"
+    #                         % peek_token().id,
+    #                         peek_token().start_mark)
+    #             token = get_token()
+    #             end_mark = token.end_mark
+    #             event = DocumentStartEvent(start_mark, end_mark,
+    #                     explicit=True, version=version, tags=tags)
+    #             states.append(parse_document_end)
+    #             state = parse_document_content
+    #         else:
+    #             # Parse the end of the stream.
+    #             token = get_token()
+    #             event = StreamEndEvent(token.start_mark, token.end_mark)
+    #             assert not states
+    #             assert not marks
+    #             state = None
+    #         return event
+
+    #     func parse_document_end():
+
+    #         # Parse the document end.
+    #         token = peek_token()
+    #         start_mark = end_mark = token.start_mark
+    #         explicit = False
+    #         if check_token(DocumentEndToken):
+    #             token = get_token()
+    #             end_mark = token.end_mark
+    #             explicit = True
+    #         event = DocumentEndEvent(start_mark, end_mark,
+    #                 explicit=explicit)
+
+    #         # Prepare the next state.
+    #         state = parse_document_start
+
+    #         return event
+
+    #     func parse_document_content():
+    #         if check_token(DirectiveToken,
+    #                 DocumentStartToken, DocumentEndToken, StreamEndToken):
+    #             event = process_empty_scalar(peek_token().start_mark)
+    #             state = states.pop()
+    #             return event
+    #         else:
+    #             return parse_block_node()
+
+    #     func process_directives():
+    #         yaml_version = None
+    #         tag_handles = {}
+    #         while check_token(DirectiveToken):
+    #             token = get_token()
+    #             if token.name == 'YAML':
+    #                 if yaml_version is not None:
+    #                     raise ParserError(None, None,
+    #                             "found duplicate YAML directive", token.start_mark)
+    #                 major, minor = token.value
+    #                 if major != 1:
+    #                     raise ParserError(None, None,
+    #                             "found incompatible YAML document (version 1.* is required)",
+    #                             token.start_mark)
+    #                 yaml_version = token.value
+    #             elif token.name == 'TAG':
+    #                 handle, prefix = token.value
+    #                 if handle in tag_handles:
+    #                     raise ParserError(None, None,
+    #                             "duplicate tag handle %r" % handle,
+    #                             token.start_mark)
+    #                 tag_handles[handle] = prefix
+    #         if tag_handles:
+    #             value = yaml_version, tag_handles.copy()
+    #         else:
+    #             value = yaml_version, None
+    #         for key in DEFAULT_TAGS:
+    #             if key not in tag_handles:
+    #                 tag_handles[key] = DEFAULT_TAGS[key]
+    #         return value
+
+    #     # block_node_or_indentless_sequence ::= ALIAS
+    #     #               | properties (block_content | indentless_block_sequence)?
+    #     #               | block_content
+    #     #               | indentless_block_sequence
+    #     # block_node    ::= ALIAS
+    #     #                   | properties block_content?
+    #     #                   | block_content
+    #     # flow_node     ::= ALIAS
+    #     #                   | properties flow_content?
+    #     #                   | flow_content
+    #     # properties    ::= TAG ANCHOR? | ANCHOR TAG?
+    #     # block_content     ::= block_collection | flow_collection | SCALAR
+    #     # flow_content      ::= flow_collection | SCALAR
+    #     # block_collection  ::= block_sequence | block_mapping
+    #     # flow_collection   ::= flow_sequence | flow_mapping
+
+    #     func parse_block_node():
+    #         return parse_node(block=True)
+
+    #     func parse_flow_node():
+    #         return parse_node()
+
+    #     func parse_block_node_or_indentless_sequence():
+    #         return parse_node(block=True, indentless_sequence=True)
+
+    #     func parse_node(block=False, indentless_sequence=False):
+    #         if check_token(AliasToken):
+    #             token = get_token()
+    #             event = AliasEvent(token.value, token.start_mark, token.end_mark)
+    #             state = states.pop()
+    #         else:
+    #             anchor = None
+    #             tag = None
+    #             start_mark = end_mark = tag_mark = None
+    #             if check_token(AnchorToken):
+    #                 token = get_token()
+    #                 start_mark = token.start_mark
+    #                 end_mark = token.end_mark
+    #                 anchor = token.value
+    #                 if check_token(TagToken):
+    #                     token = get_token()
+    #                     tag_mark = token.start_mark
+    #                     end_mark = token.end_mark
+    #                     tag = token.value
+    #             elif check_token(TagToken):
+    #                 token = get_token()
+    #                 start_mark = tag_mark = token.start_mark
+    #                 end_mark = token.end_mark
+    #                 tag = token.value
+    #                 if check_token(AnchorToken):
+    #                     token = get_token()
+    #                     end_mark = token.end_mark
+    #                     anchor = token.value
+    #             if tag is not None:
+    #                 handle, suffix = tag
+    #                 if handle is not None:
+    #                     if handle not in tag_handles:
+    #                         raise ParserError("while parsing a node", start_mark,
+    #                                 "found undefined tag handle %r" % handle,
+    #                                 tag_mark)
+    #                     tag = tag_handles[handle]+suffix
+    #                 else:
+    #                     tag = suffix
+    #             #if tag == '!':
+    #             #    raise ParserError("while parsing a node", start_mark,
+    #             #            "found non-specific tag '!'", tag_mark,
+    #             #            "Please check 'http://pyyaml.org/wiki/YAMLNonSpecificTag' and share your opinion.")
+    #             if start_mark is None:
+    #                 start_mark = end_mark = peek_token().start_mark
+    #             event = None
+    #             implicit = (tag is None or tag == '!')
+    #             if indentless_sequence and check_token(BlockEntryToken):
+    #                 end_mark = peek_token().end_mark
+    #                 event = SequenceStartEvent(anchor, tag, implicit,
+    #                         start_mark, end_mark)
+    #                 state = parse_indentless_sequence_entry
+    #             else:
+    #                 if check_token(ScalarToken):
+    #                     token = get_token()
+    #                     end_mark = token.end_mark
+    #                     if (token.plain and tag is None) or tag == '!':
+    #                         implicit = (True, False)
+    #                     elif tag is None:
+    #                         implicit = (False, True)
+    #                     else:
+    #                         implicit = (False, False)
+    #                     event = ScalarEvent(anchor, tag, implicit, token.value,
+    #                             start_mark, end_mark, style=token.style)
+    #                     state = states.pop()
+    #                 elif check_token(FlowSequenceStartToken):
+    #                     end_mark = peek_token().end_mark
+    #                     event = SequenceStartEvent(anchor, tag, implicit,
+    #                             start_mark, end_mark, flow_style=True)
+    #                     state = parse_flow_sequence_first_entry
+    #                 elif check_token(FlowMappingStartToken):
+    #                     end_mark = peek_token().end_mark
+    #                     event = MappingStartEvent(anchor, tag, implicit,
+    #                             start_mark, end_mark, flow_style=True)
+    #                     state = parse_flow_mapping_first_key
+    #                 elif block and check_token(BlockSequenceStartToken):
+    #                     end_mark = peek_token().start_mark
+    #                     event = SequenceStartEvent(anchor, tag, implicit,
+    #                             start_mark, end_mark, flow_style=False)
+    #                     state = parse_block_sequence_first_entry
+    #                 elif block and check_token(BlockMappingStartToken):
+    #                     end_mark = peek_token().start_mark
+    #                     event = MappingStartEvent(anchor, tag, implicit,
+    #                             start_mark, end_mark, flow_style=False)
+    #                     state = parse_block_mapping_first_key
+    #                 elif anchor is not None or tag is not None:
+    #                     # Empty scalars are allowed even if a tag or an anchor is
+    #                     # specified.
+    #                     event = ScalarEvent(anchor, tag, (implicit, False), '',
+    #                             start_mark, end_mark)
+    #                     state = states.pop()
+    #                 else:
+    #                     if block:
+    #                         node = 'block'
+    #                     else:
+    #                         node = 'flow'
+    #                     token = peek_token()
+    #                     raise ParserError("while parsing a %s node" % node, start_mark,
+    #                             "expected the node content, but found %r" % token.id,
+    #                             token.start_mark)
+    #         return event
+
+    #     # block_sequence ::= BLOCK-SEQUENCE-START (BLOCK-ENTRY block_node?)* BLOCK-END
+
+    #     func parse_block_sequence_first_entry():
+    #         token = get_token()
+    #         marks.append(token.start_mark)
+    #         return parse_block_sequence_entry()
+
+    #     func parse_block_sequence_entry():
+    #         if check_token(BlockEntryToken):
+    #             token = get_token()
+    #             if not check_token(BlockEntryToken, BlockEndToken):
+    #                 states.append(parse_block_sequence_entry)
+    #                 return parse_block_node()
+    #             else:
+    #                 state = parse_block_sequence_entry
+    #                 return process_empty_scalar(token.end_mark)
+    #         if not check_token(BlockEndToken):
+    #             token = peek_token()
+    #             raise ParserError("while parsing a block collection", marks[-1],
+    #                     "expected <block end>, but found %r" % token.id, token.start_mark)
+    #         token = get_token()
+    #         event = SequenceEndEvent(token.start_mark, token.end_mark)
+    #         state = states.pop()
+    #         marks.pop()
+    #         return event
+
+    #     # indentless_sequence ::= (BLOCK-ENTRY block_node?)+
+
+    #     func parse_indentless_sequence_entry():
+    #         if check_token(BlockEntryToken):
+    #             token = get_token()
+    #             if not check_token(BlockEntryToken,
+    #                     KeyToken, ValueToken, BlockEndToken):
+    #                 states.append(parse_indentless_sequence_entry)
+    #                 return parse_block_node()
+    #             else:
+    #                 state = parse_indentless_sequence_entry
+    #                 return process_empty_scalar(token.end_mark)
+    #         token = peek_token()
+    #         event = SequenceEndEvent(token.start_mark, token.start_mark)
+    #         state = states.pop()
+    #         return event
+
+    #     # block_mapping     ::= BLOCK-MAPPING_START
+    #     #                       ((KEY block_node_or_indentless_sequence?)?
+    #     #                       (VALUE block_node_or_indentless_sequence?)?)*
+    #     #                       BLOCK-END
+
+    #     func parse_block_mapping_first_key():
+    #         token = get_token()
+    #         marks.append(token.start_mark)
+    #         return parse_block_mapping_key()
+
+    #     func parse_block_mapping_key():
+    #         if check_token(KeyToken):
+    #             token = get_token()
+    #             if not check_token(KeyToken, ValueToken, BlockEndToken):
+    #                 states.append(parse_block_mapping_value)
+    #                 return parse_block_node_or_indentless_sequence()
+    #             else:
+    #                 state = parse_block_mapping_value
+    #                 return process_empty_scalar(token.end_mark)
+    #         if not check_token(BlockEndToken):
+    #             token = peek_token()
+    #             raise ParserError("while parsing a block mapping", marks[-1],
+    #                     "expected <block end>, but found %r" % token.id, token.start_mark)
+    #         token = get_token()
+    #         event = MappingEndEvent(token.start_mark, token.end_mark)
+    #         state = states.pop()
+    #         marks.pop()
+    #         return event
+
+    #     func parse_block_mapping_value():
+    #         if check_token(ValueToken):
+    #             token = get_token()
+    #             if not check_token(KeyToken, ValueToken, BlockEndToken):
+    #                 states.append(parse_block_mapping_key)
+    #                 return parse_block_node_or_indentless_sequence()
+    #             else:
+    #                 state = parse_block_mapping_key
+    #                 return process_empty_scalar(token.end_mark)
+    #         else:
+    #             state = parse_block_mapping_key
+    #             token = peek_token()
+    #             return process_empty_scalar(token.start_mark)
+
+    #     # flow_sequence     ::= FLOW-SEQUENCE-START
+    #     #                       (flow_sequence_entry FLOW-ENTRY)*
+    #     #                       flow_sequence_entry?
+    #     #                       FLOW-SEQUENCE-END
+    #     # flow_sequence_entry   ::= flow_node | KEY flow_node? (VALUE flow_node?)?
+    #     #
+    #     # Note that while production rules for both flow_sequence_entry and
+    #     # flow_mapping_entry are equal, their interpretations are different.
+    #     # For `flow_sequence_entry`, the part `KEY flow_node? (VALUE flow_node?)?`
+    #     # generate an inline mapping (set syntax).
+
+    #     func parse_flow_sequence_first_entry():
+    #         token = get_token()
+    #         marks.append(token.start_mark)
+    #         return parse_flow_sequence_entry(first=True)
+
+    #     func parse_flow_sequence_entry(first=False):
+    #         if not check_token(FlowSequenceEndToken):
+    #             if not first:
+    #                 if check_token(FlowEntryToken):
+    #                     get_token()
+    #                 else:
+    #                     token = peek_token()
+    #                     raise ParserError("while parsing a flow sequence", marks[-1],
+    #                             "expected ',' or ']', but got %r" % token.id, token.start_mark)
+                
+    #             if check_token(KeyToken):
+    #                 token = peek_token()
+    #                 event = MappingStartEvent(None, None, True,
+    #                         token.start_mark, token.end_mark,
+    #                         flow_style=True)
+    #                 state = parse_flow_sequence_entry_mapping_key
+    #                 return event
+    #             elif not check_token(FlowSequenceEndToken):
+    #                 states.append(parse_flow_sequence_entry)
+    #                 return parse_flow_node()
+    #         token = get_token()
+    #         event = SequenceEndEvent(token.start_mark, token.end_mark)
+    #         state = states.pop()
+    #         marks.pop()
+    #         return event
+
+    #     func parse_flow_sequence_entry_mapping_key():
+    #         token = get_token()
+    #         if not check_token(ValueToken,
+    #                 FlowEntryToken, FlowSequenceEndToken):
+    #             states.append(parse_flow_sequence_entry_mapping_value)
+    #             return parse_flow_node()
+    #         else:
+    #             state = parse_flow_sequence_entry_mapping_value
+    #             return process_empty_scalar(token.end_mark)
+
+    #     func parse_flow_sequence_entry_mapping_value():
+    #         if check_token(ValueToken):
+    #             token = get_token()
+    #             if not check_token(FlowEntryToken, FlowSequenceEndToken):
+    #                 states.append(parse_flow_sequence_entry_mapping_end)
+    #                 return parse_flow_node()
+    #             else:
+    #                 state = parse_flow_sequence_entry_mapping_end
+    #                 return process_empty_scalar(token.end_mark)
+    #         else:
+    #             state = parse_flow_sequence_entry_mapping_end
+    #             token = peek_token()
+    #             return process_empty_scalar(token.start_mark)
+
+    #     func parse_flow_sequence_entry_mapping_end():
+    #         state = parse_flow_sequence_entry
+    #         token = peek_token()
+    #         return MappingEndEvent(token.start_mark, token.start_mark)
+
+    #     # flow_mapping  ::= FLOW-MAPPING-START
+    #     #                   (flow_mapping_entry FLOW-ENTRY)*
+    #     #                   flow_mapping_entry?
+    #     #                   FLOW-MAPPING-END
+    #     # flow_mapping_entry    ::= flow_node | KEY flow_node? (VALUE flow_node?)?
+
+    #     func parse_flow_mapping_first_key():
+    #         token = get_token()
+    #         marks.append(token.start_mark)
+    #         return parse_flow_mapping_key(first=True)
+
+    #     func parse_flow_mapping_key(first=False):
+    #         if not check_token(FlowMappingEndToken):
+    #             if not first:
+    #                 if check_token(FlowEntryToken):
+    #                     get_token()
+    #                 else:
+    #                     token = peek_token()
+    #                     raise ParserError("while parsing a flow mapping", marks[-1],
+    #                             "expected ',' or '}', but got %r" % token.id, token.start_mark)
+    #             if check_token(KeyToken):
+    #                 token = get_token()
+    #                 if not check_token(ValueToken,
+    #                         FlowEntryToken, FlowMappingEndToken):
+    #                     states.append(parse_flow_mapping_value)
+    #                     return parse_flow_node()
+    #                 else:
+    #                     state = parse_flow_mapping_value
+    #                     return process_empty_scalar(token.end_mark)
+    #             elif not check_token(FlowMappingEndToken):
+    #                 states.append(parse_flow_mapping_empty_value)
+    #                 return parse_flow_node()
+    #         token = get_token()
+    #         event = MappingEndEvent(token.start_mark, token.end_mark)
+    #         state = states.pop()
+    #         marks.pop()
+    #         return event
+
+    #     func parse_flow_mapping_value():
+    #         if check_token(ValueToken):
+    #             token = get_token()
+    #             if not check_token(FlowEntryToken, FlowMappingEndToken):
+    #                 states.append(parse_flow_mapping_key)
+    #                 return parse_flow_node()
+    #             else:
+    #                 state = parse_flow_mapping_key
+    #                 return process_empty_scalar(token.end_mark)
+    #         else:
+    #             state = parse_flow_mapping_key
+    #             token = peek_token()
+    #             return process_empty_scalar(token.start_mark)
+
+    #     func parse_flow_mapping_empty_value():
+    #         state = parse_flow_mapping_key
+    #         return process_empty_scalar(peek_token().start_mark)
+
+    #     func process_empty_scalar(mark):
+    #         return ScalarEvent(None, None, (True, False), '', mark, mark)
+
