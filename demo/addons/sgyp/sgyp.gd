@@ -4,7 +4,7 @@
 # for more detail: https://docs.godotengine.org/en/stable/classes/class_@gdscript.html#class-gdscript-annotation-static-unload
 
 
-extends Node
+class_name SGYP extends Node
 # class_name SGYP extends RefCounted
 # # You can replace the above comment and use SGYP like a normal class, 
 # # but the plugin form allows you to decide whether to enable SGYP.
@@ -23,19 +23,20 @@ static func test_parse(yaml_data) -> Variant:
 
 
 class SGYPaser:
+    func _init():
+        Resolver.init_yaml_implicit_resolvers()
 
     func load(yaml_bytes:PackedByteArray) -> Variant:
         var yaml_string = match_bom_return_string(yaml_bytes)
         var tokens = Scanner.new(yaml_string).scan()
-        var events = Parser.new(tokens).parse()
-        # var nodes = Composer.new(events).compose()
-        # var result = Constructor.new(nodes).construct()
+        var result = Constructor.new(Composer.new(Parser.new(tokens))).get_single_data()
 
+        print(result)
         # for t in tokens:
         #     print(t.type)
 
-        for e in events:
-            print(e.type)
+        # for e in events:
+        #     print(e.type)
 
         return null
 
@@ -1558,7 +1559,7 @@ class SGYPaser:
 
         var anchor        # String
         var tag           # Array[String], [handle, suffix]
-        var implicit      # bool or Array[bool], strange...
+        var implicit      # bool or Array[bool]. Only for SCALAR, implicit is a Boolean array.
         var is_flow_style # bool or null
 
         var value :String
@@ -1602,7 +1603,6 @@ class SGYPaser:
             start_mark = args[-2]
             end_mark = args[-1]
 
-
     class Parser:
         const DEFAULT_TAGS = {
             "!" : "!",
@@ -1621,6 +1621,33 @@ class SGYPaser:
 
         func _init(p_tokens):
             tokens = p_tokens
+ 
+        func check_event(...event_types):
+            # Check the type of the next event.
+            if current_event == null:
+                if state != null and state.is_valid():
+                    current_event = state.call()
+            if current_event != null:
+                for type in event_types:
+                    if current_event.type == type:
+                        return true
+            return false
+
+        func peek_event():
+            # Get the next event.
+            if current_event == null:
+                if state != null and state.is_valid():
+                    current_event = state.call()
+            return current_event
+
+        func get_event():
+            # Get the next event and proceed further.
+            if current_event == null:
+                if state != null and state.is_valid():
+                    current_event = state.call()
+            var value = current_event
+            current_event = null
+            return value
 
         func get_token():
             var result = null
@@ -1645,33 +1672,6 @@ class SGYPaser:
             while state != null:
                 events.append(state.call())
             return events
-
-        # func check_event(event_types :Array[String]):
-        #     # Check the type of the next event.
-        #     if current_event == null:
-        #         if state.is_valid():
-        #             current_event = state.call()
-        #     if current_event != null:
-        #         for type in event_types:
-        #             if current_event.type == type:
-        #                 return true
-        #     return false
-
-        # func peek_event():
-        #     # Get the next event.
-        #     if current_event != null:
-        #         if state.is_valid():
-        #             current_event = state.call()
-        #     return current_event
-
-        # func get_event():
-        #     # Get the next event and proceed further.
-        #     if current_event != null:
-        #         if state.is_valid():
-        #             current_event = state.call()
-        #     var value = current_event
-        #     current_event = null
-        #     return value
 
         # stream    ::= STREAM-START implicit_document? explicit_document* STREAM-END
         # implicit_document ::= block_node DOCUMENT-END*
@@ -2153,3 +2153,822 @@ class SGYPaser:
 
         func process_empty_scalar(mark):
             return Event.new("SCALAR", null, null, [true, false], '', null, mark, mark)
+
+    class YAMLNode:
+        # Composer produces nodes of the following types:
+        # SEQUENCE(tag, value, is_flow_style)
+        # MAPPING(tag, value, is_flow_style)
+        # SCALAR(tag, value, style)
+        static var valid_types := [
+            "SEQUENCE",
+            "MAPPING",
+            "SCALAR"
+            ]
+
+        var type
+
+        var tag
+        var value
+        var is_flow_style :bool
+        var style
+
+        var start_mark :Mark
+        var end_mark :Mark
+
+        func _init(p_type, ...args):
+            assert(p_type in valid_types, "YAMLNode type must be one of the valid_types")
+            type = p_type
+
+            match type:
+                "SEQUENCE", "MAPPING":
+                    tag = args[0]
+                    value = args[1]
+                    is_flow_style = args[2]
+                "SCALAR":
+                    tag = args[0]
+                    value = args[1]
+                    style = args[2]
+
+            start_mark = args[-2]
+            end_mark = args[-1]
+
+    class Composer:
+        var anchors = {}
+
+        var parser :Parser
+
+        func _init(p_parser):
+            parser = p_parser
+
+        func check_node():
+            # Drop the STREAM-START event.
+            if parser.check_event("STREAM_START"):
+                parser.get_event()
+
+            # If there are more documents available?
+            return not parser.check_event("STREAM_END")
+
+        func get_node():
+            # Get the root node of the next document.
+            if not parser.check_event("STREAM_END"):
+                return compose_document()
+
+        func get_single_node():
+            # Drop the STREAM-START event.
+            parser.get_event()
+
+            # Compose a document if the stream is not empty.
+            var document = null
+            if not parser.check_event("STREAM_END"):
+                document = compose_document()
+
+            # Ensure that the stream contains no more documents.
+            if not parser.check_event("STREAM_END"):
+                var event = parser.get_event()
+                SGYPaser.error("expected a single document in the stream",
+                        document.start_mark, "but found another document",
+                        event.start_mark)
+
+            # Drop the STREAM-END event.
+            parser.get_event()
+
+            return document
+
+        func compose_document():
+            # Drop the DOCUMENT-START event.
+            parser.get_event()
+
+            # Compose the root node.
+            var node = compose_node(null, null)
+
+            # Drop the DOCUMENT-END event.
+            parser.get_event()
+
+            anchors = {}
+            return node
+
+        func compose_node(parent, index):
+            var event
+            var anchor
+            if parser.check_event("ALIAS"):
+                event = parser.get_event()
+                anchor = event.anchor
+                if anchor not in anchors:
+                    SGYPaser.error("found undefined alias %r"
+                            % anchor, event.start_mark)
+                return anchors[anchor]
+            event = parser.peek_event()
+            anchor = event.anchor
+            if anchor != null:
+                if anchor in anchors:
+                    SGYPaser.error("found duplicate anchor %r; first occurrence"
+                            % anchor, anchors[anchor].start_mark,
+                            "second occurrence", event.start_mark)
+
+            var node
+            Resolver.descend_resolver(parent, index)
+            if parser.check_event("SCALAR"):
+                node = compose_scalar_node(anchor)
+            elif parser.check_event("SEQUENCE_START"):
+                node = compose_sequence_node(anchor)
+            elif parser.check_event("MAPPING_START"):
+                node = compose_mapping_node(anchor)
+            Resolver.ascend_resolver()
+            return node
+
+        func compose_scalar_node(anchor):
+            var event = parser.get_event()
+            var tag = event.tag
+            if tag == null or tag == '!':
+                tag = Resolver.resolve("SCALAR", event.value, event.implicit)
+            var node = YAMLNode.new("SCALAR", tag, event.value, event.style,
+                    event.start_mark, event.end_mark)
+            if anchor != null:
+                anchors[anchor] = node
+            return node
+
+        func compose_sequence_node(anchor):
+            var start_event = parser.get_event()
+            var tag = start_event.tag
+            if tag == null or tag == '!':
+                tag = Resolver.resolve("SEQUENCE", null, start_event.implicit)
+            var node = YAMLNode.new("SEQUENCE", tag, [], start_event.is_flow_style,
+                    start_event.start_mark, null)
+            if anchor != null:
+                anchors[anchor] = node
+            var index = 0
+            while not parser.check_event("SEQUENCE_END"):
+                node.value.append(compose_node(node, index))
+                index += 1
+            var end_event = parser.get_event()
+            node.end_mark = end_event.end_mark
+            return node
+
+        func compose_mapping_node(anchor):
+            var start_event = parser.get_event()
+            var tag = start_event.tag
+            if tag == null or tag == '!':
+                tag = Resolver.resolve("MAPPING", null, start_event.implicit)
+            var node = YAMLNode.new("MAPPING", tag, [], start_event.is_flow_style,
+                    start_event.start_mark, null)
+            if anchor != null:
+                anchors[anchor] = node
+            while not parser.check_event("MAPPING_END"):
+                #key_event = parser.peek_event()
+                var item_key = compose_node(node, null)
+                #if item_key in node.value:
+                #    SGYPaser.error("while composing a mapping", start_event.start_mark,
+                #            "found duplicate key", key_event.start_mark)
+                var item_value = compose_node(node, item_key)
+                #node.value[item_key] = item_value
+                node.value.append([item_key, item_value])
+            var end_event = parser.get_event()
+            node.end_mark = end_event.end_mark
+            return node
+
+    # NOTE: This class might need to be completely rewritten...
+    class Resolver:
+        const DEFAULT_SCALAR_TAG    = 'tag:yaml.org,2002:str'
+        const DEFAULT_SEQUENCE_TAG  = 'tag:yaml.org,2002:seq'
+        const DEFAULT_MAPPING_TAG   = 'tag:yaml.org,2002:map'
+
+        static var yaml_implicit_resolvers = {}
+        static var yaml_path_resolvers = {}
+
+        static var resolver_exact_paths = []
+        static var resolver_prefix_paths = []
+
+        static func init_yaml_implicit_resolvers():
+            Resolver.add_implicit_resolver(
+                    'tag:yaml.org,2002:bool',
+                    RegEx.create_from_string(r'''^(?:yes|Yes|YES|no|No|NO
+                                |true|True|TRUE|false|False|FALSE
+                                |on|On|ON|off|Off|OFF)$'''),
+                    'yYnNtTfFoO'.split())
+
+            Resolver.add_implicit_resolver(
+                    'tag:yaml.org,2002:float',
+                    RegEx.create_from_string(r'''^(?:[-+]?(?:[0-9][0-9_]*)\.[0-9_]*(?:[eE][-+][0-9]+)?
+                                |\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?
+                                |[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*
+                                |[-+]?\.(?:inf|Inf|INF)
+                                |\.(?:nan|NaN|NAN))$'''),
+                    '-+0123456789.'.split())
+
+            Resolver.add_implicit_resolver(
+                    'tag:yaml.org,2002:int',
+                    RegEx.create_from_string(r'''^(?:[-+]?0b[0-1_]+
+                                |[-+]?0[0-7_]+
+                                |[-+]?(?:0|[1-9][0-9_]*)
+                                |[-+]?0x[0-9a-fA-F_]+
+                                |[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+)$'''),
+                    '-+0123456789'.split())
+
+            Resolver.add_implicit_resolver(
+                    'tag:yaml.org,2002:merge',
+                    RegEx.create_from_string(r'^(?:<<)$'),
+                    ['<'])
+
+            Resolver.add_implicit_resolver(
+                    'tag:yaml.org,2002:null',
+                    RegEx.create_from_string(r'''^(?: ~
+                                |null|Null|NULL
+                                | )$'''),
+                    ['~', 'n', 'N', ''])
+
+            Resolver.add_implicit_resolver(
+                    'tag:yaml.org,2002:timestamp',
+                    RegEx.create_from_string(r'''^(?:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]
+                                |[0-9][0-9][0-9][0-9] -[0-9][0-9]? -[0-9][0-9]?
+                                (?:[Tt]|[ \t]+)[0-9][0-9]?
+                                :[0-9][0-9] :[0-9][0-9] (?:\.[0-9]*)?
+                                (?:[ \t]*(?:Z|[-+][0-9][0-9]?(?::[0-9][0-9])?))?)$'''),
+                    '0123456789'.split())
+
+            Resolver.add_implicit_resolver(
+                    'tag:yaml.org,2002:value',
+                    RegEx.create_from_string(r'^(?:=)$'),
+                    ['='])
+
+            # The following resolver is only for documentation purposes. It cannot work
+            # because plain scalars cannot start with '!', '&', or '*'.
+            Resolver.add_implicit_resolver(
+                    'tag:yaml.org,2002:yaml',
+                    RegEx.create_from_string(r'^(?:!|&|\*)$'),
+                    '!&*'.split())
+
+        static func add_implicit_resolver(tag, regexp, first):
+            # if not 'yaml_implicit_resolvers' in cls.__dict__:
+            #     implicit_resolvers = {}
+            #     for key in cls.yaml_implicit_resolvers:
+            #         implicit_resolvers[key] = cls.yaml_implicit_resolvers[key][:]
+            #     cls.yaml_implicit_resolvers = implicit_resolvers
+            if first == null:
+                first = []
+            for ch in first:
+                yaml_implicit_resolvers.get_or_add(ch, []).append([tag, regexp])
+
+        # static func add_path_resolver(tag, path, kind=null):
+        #     # Note: `add_path_resolver` is experimental.  The API could be changed.
+        #     # `new_path` is a pattern that is matched against the path from the
+        #     # root to the node that is being considered.  `node_path` elements are
+        #     # tuples `(node_check, index_check)`.  `node_check` is a node class:
+        #     # `ScalarNode`, `SequenceNode`, `MappingNode` or `None`.  `None`
+        #     # matches any kind of a node.  `index_check` could be `None`, a boolean
+        #     # value, a string value, or a number.  `None` and `False` match against
+        #     # any _value_ of sequence and mapping nodes.  `True` matches against
+        #     # any _key_ of a mapping node.  A string `index_check` matches against
+        #     # a mapping value that corresponds to a scalar key which content is
+        #     # equal to the `index_check` value.  An integer `index_check` matches
+        #     # against a sequence value with the index equal to `index_check`.
+        #     if not 'yaml_path_resolvers' in cls.__dict__:
+        #         cls.yaml_path_resolvers = cls.yaml_path_resolvers.copy()
+        #     new_path = []
+        #     for element in path:
+        #         if isinstance(element, (list, tuple)):
+        #             if len(element) == 2:
+        #                 node_check, index_check = element
+        #             elif len(element) == 1:
+        #                 node_check = element[0]
+        #                 index_check = True
+        #             else:
+        #                 raise ResolverError("Invalid path element: %s" % element)
+        #         else:
+        #             node_check = null
+        #             index_check = element
+        #         if node_check is str:
+        #             node_check = ScalarNode
+        #         elif node_check is list:
+        #             node_check = SequenceNode
+        #         elif node_check is dict:
+        #             node_check = MappingNode
+        #         elif node_check not in [ScalarNode, SequenceNode, MappingNode]  \
+        #                 and not isinstance(node_check, str) \
+        #                 and node_check != null:
+        #             raise ResolverError("Invalid node checker: %s" % node_check)
+        #         if not isinstance(index_check, (str, int))  \
+        #                 and index_check != null:
+        #             raise ResolverError("Invalid index checker: %s" % index_check)
+        #         new_path.append((node_check, index_check))
+        #     if kind is str:
+        #         kind = ScalarNode
+        #     elif kind is list:
+        #         kind = SequenceNode
+        #     elif kind is dict:
+        #         kind = MappingNode
+        #     elif kind not in [ScalarNode, SequenceNode, MappingNode]    \
+        #             and kind != null:
+        #         raise ResolverError("Invalid node kind: %s" % kind)
+        #     cls.yaml_path_resolvers[tuple(new_path), kind] = tag
+
+        static func descend_resolver(current_node, current_index):
+            if yaml_path_resolvers.is_empty():
+                return
+            var exact_paths = {}
+            var prefix_paths = []
+            if current_node != null:
+                var depth = len(resolver_prefix_paths)
+                for temp_array in resolver_prefix_paths[-1]:
+                    var path = temp_array[0]
+                    var kind = temp_array[1]
+                    if check_resolver_prefix(depth, path, kind,
+                            current_node, current_index):
+                        if len(path) > depth:
+                            prefix_paths.append([path, kind])
+                        else:
+                            var key = "%s\u001f%s" % [path, kind]
+                            exact_paths[kind] = yaml_path_resolvers[key]
+            else:
+                for key in yaml_path_resolvers:
+                    var path = key.get_slice('\u001f', 0)
+                    var kind = key.get_slice('\u001f', 1)
+                    if path.is_empty():
+                        exact_paths[kind] = yaml_path_resolvers[key]
+                    else:
+                        prefix_paths.append([path, kind])
+            resolver_exact_paths.append(exact_paths)
+            resolver_prefix_paths.append(prefix_paths)
+
+        static func ascend_resolver():
+            if yaml_path_resolvers.is_empty():
+                return
+            resolver_exact_paths.pop_back()
+            resolver_prefix_paths.pop_back()
+
+        static func check_resolver_prefix(depth, path, kind,
+                current_node, current_index):
+            var temp_array = path[depth-1]
+            var node_check = temp_array[0]
+            var index_check = temp_array[1]
+            if type_string(typeof(node_check)) == "String": 
+                # Normally node_check shoule be a String, such as 'tag:yaml.org,2002:str'
+                if current_node.tag != node_check:
+                    return
+            elif node_check != null:
+                assert(false, "This should not happend, pls report")
+            #     if not isinstance(current_node, node_check):
+            #         return
+            if index_check == true and current_index != null:
+                return
+            if (index_check == false or index_check == null)    \
+                    and current_index == null:
+                return
+            if type_string(typeof(index_check)) == "String":
+                if not (current_index.type == "SCALAR"
+                        and index_check == current_index.value):
+                    return
+            elif type_string(typeof(index_check)) == "int" and not type_string(typeof(index_check)) == "bool":
+                if index_check != current_index:
+                    return
+            return true
+
+        static func resolve(kind, value, implicit):
+            if kind == "SCALAR" and implicit[0]:
+                var resolvers
+                if value == '':
+                    resolvers = yaml_implicit_resolvers.get('', [])
+                else:
+                    resolvers = yaml_implicit_resolvers.get(value[0], [])
+                var wildcard_resolvers = yaml_implicit_resolvers.get(null, [])
+                for temp_array in resolvers + wildcard_resolvers:
+                    var tag = temp_array[0]
+                    var regexp = temp_array[1]
+                    if regexp.match(value) != null:
+                        return tag
+                implicit = implicit[1]
+            if yaml_path_resolvers:
+                var exact_paths = resolver_exact_paths[-1]
+                if kind in exact_paths:
+                    return exact_paths[kind]
+                if null in exact_paths:
+                    return exact_paths[null]
+            if kind == "SCALAR":
+                return DEFAULT_SCALAR_TAG
+            elif kind == "SEQUENCE":
+                return DEFAULT_SEQUENCE_TAG
+            elif kind == "MAPPING":
+                return DEFAULT_MAPPING_TAG
+
+    class Constructor:
+
+        var yaml_constructors = {}
+        var yaml_multi_constructors = {}
+
+        var constructed_objects = {}
+        var recursive_objects = {}
+        var state_generators = []
+        var deep_construct = false
+
+        var composer :Composer
+
+        func _init(p_composer):
+            composer = p_composer
+
+        func check_data():
+            # If there are more documents available?
+            return composer.check_node()
+
+        # # NOTE: It is currently unclear whether GDScript has any unavailable keys.
+        # func get_state_keys_blacklist():
+        #     return []
+
+        # var state_keys_blacklist_regexp
+        # func get_state_keys_blacklist_regexp():
+        #     if state_keys_blacklist_regexp == null:
+        #         state_keys_blacklist_regexp = RegEx.create_from_string('(' + '|'.join(get_state_keys_blacklist()) + ')')
+        #     return state_keys_blacklist_regexp
+
+        # func check_state_key(key):
+        #     # """Block special attributes/methods from being set in a newly created
+        #     # object, to prevent user-controlled methods from being called during
+        #     # deserialization"""
+        #     if get_state_keys_blacklist_regexp().search(key) != null:
+        #         SGYPaser.error("blacklisted key '%s' in instance state found" % key)
+
+        func get_data():
+            # Construct and return the next document.
+            if composer.check_node():
+                return construct_document(composer.get_node())
+
+        func get_single_data():
+            # Ensure that the stream contains a single document and construct it.
+            var node = composer.get_single_node()
+            if node != null:
+                return construct_document(node)
+            return null
+
+        func construct_document(node):
+            var data = construct_object(node)
+            while state_generators:
+                state_generators = state_generators
+                state_generators = []
+                for generator in state_generators:
+                    for dummy in generator:
+                        pass
+            constructed_objects = {}
+            recursive_objects = {}
+            deep_construct = false
+            return data
+
+        func construct_object(node, deep=false):
+            var old_deep
+            if node in constructed_objects:
+                return constructed_objects[node]
+            if deep:
+                old_deep = deep_construct
+                deep_construct = true
+            if node in recursive_objects:
+                SGYPaser.error("found unconstructable recursive node", node.start_mark)
+            recursive_objects[node] = null
+            var constructor = null
+            var tag_suffix = null
+            if node.tag in yaml_constructors:
+                constructor = yaml_constructors[node.tag]
+            else:
+                var break_flag = false
+                for tag_prefix in yaml_multi_constructors:
+                    if tag_prefix != null and node.tag.begins_with(tag_prefix):
+                        tag_suffix = node.tag.substr(len(tag_prefix))
+                        constructor = yaml_multi_constructors[tag_prefix]
+                        break_flag = true
+                        break
+                if break_flag == false:
+                    if null in yaml_multi_constructors:
+                        tag_suffix = node.tag
+                        constructor = yaml_multi_constructors[null]
+                    elif null in yaml_constructors:
+                        constructor = yaml_constructors[null]
+                    elif node.type == "SCALAR":
+                        constructor = construct_scalar
+                    elif node.type == "SEQUENCE":
+                        constructor = construct_sequence
+                    elif node.type == "MAPPING":
+                        constructor = construct_mapping
+            var data
+            if tag_suffix == null:
+                data = constructor.call(node)
+            else:
+                data = constructor.call(tag_suffix, node)
+            # if isinstance(data, types.GeneratorType):
+            #     generator = data
+            #     data = next(generator)
+            #     if deep_construct:
+            #         for dummy in generator:
+            #             pass
+            #     else:
+            #         state_generators.append(generator)
+            constructed_objects[node] = data
+            recursive_objects.erase(node)
+            if deep:
+                deep_construct = old_deep
+            return data
+
+        func construct_scalar(node):
+            if node.type != "SCALAR":
+                SGYPaser.error("expected a scalar node, but found %s" % node.type,
+                        node.start_mark)
+            return node.value
+
+        func construct_sequence(node, deep=false):
+            if node.type != "SEQUENCE":
+                SGYPaser.error("expected a sequence node, but found %s" % node.type,
+                        node.start_mark)
+
+            var result_array = []
+            for child in node.value:
+                result_array.append(construct_object(child, deep))
+            return result_array
+
+        func construct_mapping(node, deep=false):
+            if node.type == "MAPPING":
+                flatten_mapping(node)
+
+            if node.type != "MAPPING":
+                SGYPaser.error("expected a mapping node, but found %s" % node.type,
+                        node.start_mark)
+            var mapping = {}
+            for temp_array in node.value:
+                var key_node = temp_array[0]
+                var value_node = temp_array[1]
+                var key = construct_object(key_node, deep)
+                # if not isinstance(key, collections.abc.Hashable):
+                #     SGYPaser.error("while constructing a mapping", node.start_mark,
+                #             "found unhashable key", key_node.start_mark)
+                var value = construct_object(value_node, deep)
+                mapping[key] = value
+            return mapping
+
+        func construct_pairs(node, deep=false):
+            if node.type != "MAPPING":
+                SGYPaser.error("expected a mapping node, but found %s" % node.type,
+                        node.start_mark)
+            var pairs = []
+            for temp_array in node.value:
+                var key_node = temp_array[0]
+                var value_node = temp_array[1]
+                var key = construct_object(key_node, deep)
+                var value = construct_object(value_node, deep)
+                pairs.append([key, value])
+            return pairs
+
+        static func add_constructor(cls, tag, constructor):
+            if not 'yaml_constructors' in cls.__dict__:
+                cls.yaml_constructors = cls.yaml_constructors.copy()
+            cls.yaml_constructors[tag] = constructor
+
+        static func add_multi_constructor(cls, tag_prefix, multi_constructor):
+            if not 'yaml_multi_constructors' in cls.__dict__:
+                cls.yaml_multi_constructors = cls.yaml_multi_constructors.copy()
+            cls.yaml_multi_constructors[tag_prefix] = multi_constructor
+
+        func flatten_mapping(node):
+            var merge = []
+            var index = 0
+            while index < len(node.value):
+                var temp_array = node.value[index]
+                var key_node = temp_array[0]
+                var value_node = temp_array[1]
+                if key_node.tag == 'tag:yaml.org,2002:merge':
+                    node.value.erase(index)
+                    if value_node.type == "MAPPING":
+                        flatten_mapping(value_node)
+                        merge.extend(value_node.value)
+                    elif value_node.type == "SEQUENCE":
+                        var submerge = []
+                        for subnode in value_node.value:
+                            if subnode.type != "MAPPING":
+                                SGYPaser.error("while constructing a mapping",
+                                        node.start_mark,
+                                        "expected a mapping for merging, but found %s"
+                                        % subnode.id, subnode.start_mark)
+                            flatten_mapping(subnode)
+                            submerge.append(subnode.value)
+                        submerge.reverse()
+                        for value in submerge:
+                            merge.extend(value)
+                    else:
+                        SGYPaser.error("while constructing a mapping", node.start_mark,
+                                "expected a mapping or list of mappings for merging, but found %s"
+                                % value_node.id, value_node.start_mark)
+                elif key_node.tag == 'tag:yaml.org,2002:value':
+                    key_node.tag = 'tag:yaml.org,2002:str'
+                    index += 1
+                else:
+                    index += 1
+            if merge:
+                node.value = merge + node.value
+
+        func construct_yaml_null(node):
+            construct_scalar(node)
+            return null
+
+        const bool_values = {
+            'yes':      true,
+            'no':       false,
+            'true':     true,
+            'false':    false,
+            'on':       true,
+            'off':      false,
+        }
+
+        func construct_yaml_bool(node):
+            var value = construct_scalar(node)
+            return bool_values[value.lower()]
+
+        func construct_yaml_int(node):
+            var value = construct_scalar(node)
+            value = value.replace('_', '')
+            var sign = +1
+            if value[0] == '-':
+                sign = -1
+            if value[0] in '+-':
+                value = value.substr(1)
+            if value == '0':
+                return 0
+            elif value.startswith('0b'):
+                return sign*value.substr(2).bin_to_int()
+            elif value.startswith('0x'):
+                return sign*value.substr(2).hex_to_int()
+            # FIXME
+            # elif value[0] == '0':
+            #     return sign*int(value, 8)
+            elif ':' in value:
+                var digits = []
+                for part in value.split(':'):
+                    digits.append(int(part)) 
+                digits.reverse()
+                var base = 1
+                value = 0
+                for digit in digits:
+                    value += digit*base
+                    base *= 60
+                return sign*value
+            else:
+                return sign*int(value)
+
+        # inf_value = 1e300
+        # while inf_value != inf_value*inf_value:
+        #     inf_value *= inf_value
+        # nan_value = -inf_value/inf_value   # Trying to make a quiet NaN (like C99).
+
+        func construct_yaml_float(node):
+            var value = construct_scalar(node)
+            value = value.replace('_', '').lower()
+            var sign = +1
+            if value[0] == '-':
+                sign = -1
+            if value[0] in '+-':
+                value = value.substr(1)
+            if value == '.inf':
+                return INF
+            elif value == '.nan':
+                return NAN
+            elif ':' in value:
+                var digits = []
+                for part in value.split(':'):
+                    digits.append(int(part)) 
+                digits.reverse()
+                var base = 1
+                value = 0.0
+                for digit in digits:
+                    value += digit*base
+                    base *= 60
+                return sign*value
+            else:
+                return sign*float(value)
+
+        # func construct_yaml_binary(node):
+        #     try:
+        #         value = construct_scalar(node).encode('ascii')
+        #     except UnicodeEncodeError as exc:
+        #         SGYPaser.error(None, None,
+        #                 "failed to convert base64 data into ascii: %s" % exc,
+        #                 node.start_mark)
+        #     try:
+        #         if hasattr(base64, 'decodebytes'):
+        #             return base64.decodebytes(value)
+        #         else:
+        #             return base64.decodestring(value)
+        #     except binascii.Error as exc:
+        #         SGYPaser.error(None, None,
+        #                 "failed to decode base64 data: %s" % exc, node.start_mark)
+
+        # static var timestamp_regexp = RegEx.create_from_string(
+        #         r'''^(?P<year>[0-9][0-9][0-9][0-9])
+        #             -(?P<month>[0-9][0-9]?)
+        #             -(?P<day>[0-9][0-9]?)
+        #             (?:(?:[Tt]|[ \t]+)
+        #             (?P<hour>[0-9][0-9]?)
+        #             :(?P<minute>[0-9][0-9])
+        #             :(?P<second>[0-9][0-9])
+        #             (?:\.(?P<fraction>[0-9]*))?
+        #             (?:[ \t]*(?P<tz>Z|(?P<tz_sign>[-+])(?P<tz_hour>[0-9][0-9]?)
+        #             (?::(?P<tz_minute>[0-9][0-9]))?))?)?$''')
+
+        # func construct_yaml_timestamp(node):
+        #     value = construct_scalar(node)
+        #     var match = timestamp_regexp.search_all(node.value)
+        #     values = match.strings
+        #     year = int(values['year'])
+        #     month = int(values['month'])
+        #     day = int(values['day'])
+        #     if not values['hour']:
+        #         return datetime.date(year, month, day)
+        #     hour = int(values['hour'])
+        #     minute = int(values['minute'])
+        #     second = int(values['second'])
+        #     fraction = 0
+        #     tzinfo = None
+        #     if values['fraction']:
+        #         fraction = values['fraction'].substr(0,6)
+        #         while len(fraction) < 6:
+        #             fraction += '0'
+        #         fraction = int(fraction)
+        #     if values['tz_sign']:
+        #         tz_hour = int(values['tz_hour'])
+        #         tz_minute = int(values['tz_minute'] or 0)
+        #         delta = datetime.timedelta(hours=tz_hour, minutes=tz_minute)
+        #         if values['tz_sign'] == '-':
+        #             delta = -delta
+        #         tzinfo = datetime.timezone(delta)
+        #     elif values['tz']:
+        #         tzinfo = datetime.timezone.utc
+        #     return datetime.datetime(year, month, day, hour, minute, second, fraction,
+        #                             tzinfo=tzinfo)
+
+        # func construct_yaml_omap(node):
+        #     # Note: we do not check for duplicate keys, because it's too
+        #     # CPU-expensive.
+        #     omap = []
+        #     yield omap
+        #     if not isinstance(node, SequenceNode):
+        #         SGYPaser.error("while constructing an ordered map", node.start_mark,
+        #                 "expected a sequence, but found %s" % node.id, node.start_mark)
+        #     for subnode in node.value:
+        #         if not isinstance(subnode, MappingNode):
+        #             SGYPaser.error("while constructing an ordered map", node.start_mark,
+        #                     "expected a mapping of length 1, but found %s" % subnode.id,
+        #                     subnode.start_mark)
+        #         if len(subnode.value) != 1:
+        #             SGYPaser.error("while constructing an ordered map", node.start_mark,
+        #                     "expected a single mapping item, but found %d items" % len(subnode.value),
+        #                     subnode.start_mark)
+        #         key_node, value_node = subnode.value[0]
+        #         key = construct_object(key_node)
+        #         value = construct_object(value_node)
+        #         omap.append((key, value))
+
+        # func construct_yaml_pairs(node):
+        #     # Note: the same code as `construct_yaml_omap`.
+        #     pairs = []
+        #     yield pairs
+        #     if not isinstance(node, SequenceNode):
+        #         SGYPaser.error("while constructing pairs", node.start_mark,
+        #                 "expected a sequence, but found %s" % node.id, node.start_mark)
+        #     for subnode in node.value:
+        #         if not isinstance(subnode, MappingNode):
+        #             SGYPaser.error("while constructing pairs", node.start_mark,
+        #                     "expected a mapping of length 1, but found %s" % subnode.id,
+        #                     subnode.start_mark)
+        #         if len(subnode.value) != 1:
+        #             SGYPaser.error("while constructing pairs", node.start_mark,
+        #                     "expected a single mapping item, but found %d items" % len(subnode.value),
+        #                     subnode.start_mark)
+        #         key_node, value_node = subnode.value[0]
+        #         key = construct_object(key_node)
+        #         value = construct_object(value_node)
+        #         pairs.append((key, value))
+
+        # func construct_yaml_set(node):
+        #     data = set()
+        #     yield data
+        #     value = construct_mapping(node)
+        #     data.update(value)
+
+        # func construct_yaml_str(node):
+        #     return construct_scalar(node)
+
+        # func construct_yaml_seq(node):
+        #     data = []
+        #     yield data
+        #     data.extend(construct_sequence(node))
+
+        # func construct_yaml_map(node):
+        #     data = {}
+        #     yield data
+        #     value = construct_mapping(node)
+        #     data.update(value)
+
+        # func construct_yaml_object(node, cls):
+        #     data = cls.__new__(cls)
+        #     yield data
+        #     if hasattr(data, '__setstate__'):
+        #         state = construct_mapping(node, deep=true)
+        #         data.__setstate__(state)
+        #     else:
+        #         state = construct_mapping(node)
+        #         data.__dict__.update(state)
+
+        func construct_undefined(node):
+            SGYPaser.error("could not determine a constructor for the tag %s" % node.tag,
+                    node.start_mark)
