@@ -1531,6 +1531,17 @@ class SGYPaser:
             return ''
 
     class Event:
+        # Parser produces events of the following types:
+        # STREAM-START
+        # STREAM-END
+        # DOCUMENT-START(is_explicit, [yaml_version, tags])
+        # DOCUMENT-END(is_explicit)
+        # SEQUENCE-START(anchor, tag, implicit, [is_flow_style])
+        # SEQUENCE-END
+        # MAPPING-START(anchor, tag, implicit, is_flow_style)
+        # MAPPING-END
+        # ALIAS(value)
+        # SCALAR(anchor, tag, implicit, value, style)
         static var valid_types := [
             "STREAM_START"  , "STREAM_END",
             "DOCUMENT_START", "DOCUMENT_END",
@@ -1539,9 +1550,19 @@ class SGYPaser:
             "ALIAS", "SCALAR"
             ]
 
-        var type        :String
+        var type :String
 
-        var is_explicit :bool
+        var is_explicit   :bool
+        var yaml_version  # Array[int] or null # version 1.2 will be [1, 2]
+        var tags          # Dictionary or null
+
+        var anchor        # String
+        var tag           # Array[String], [handle, suffix]
+        var implicit      # bool or Array[bool], strange...
+        var is_flow_style # bool or null
+
+        var value :String
+        var style # String or null
 
         var start_mark  :Mark
         var end_mark    :Mark
@@ -1550,6 +1571,36 @@ class SGYPaser:
             assert(p_type in valid_types, "Event type must be one of the valid_types")
             type = p_type
 
+            match type:
+                "DOCUMENT_START":
+                    is_explicit = args[0]
+                    if args.size() == 3+2: # +2 Mark args
+                        yaml_version = args[1]
+                        tags = args[2]
+                "DOCUMENT_END":
+                    is_explicit = args[0]
+                "SEQUENCE_START":
+                    anchor = args[0]
+                    tag = args[1]
+                    implicit = args[2]
+                    if args.size() == 4+2:
+                        is_flow_style = args[3]
+                "MAPPING_START":
+                    anchor = args[0]
+                    tag = args[1]
+                    implicit = args[2]
+                    is_flow_style = args[3]
+                "ALIAS":
+                    value = args[0]
+                "SCALAR":
+                    anchor = args[0]
+                    tag = args[1]
+                    implicit = args[2]
+                    value = args[3]
+                    style = args[4]
+
+            start_mark = args[-2]
+            end_mark = args[-1]
 
 
     class Parser:
@@ -1644,7 +1695,7 @@ class SGYPaser:
                 var tag_handles = DEFAULT_TAGS
                 var token = peek_token()
                 var is_explicit = false
-                var event = Event.new("DOCUMENT_START", token.start_mark, token.end_mark, is_explicit)
+                var event = Event.new("DOCUMENT_START", is_explicit, token.start_mark, token.end_mark)
 
                 # Prepare the next state.
                 states.append(parse_document_end)
@@ -1666,16 +1717,16 @@ class SGYPaser:
             if not check_token("STREAM_END"):
                 var token = peek_token()
                 var start_mark = token.start_mark
-                var temp_dic = process_directives()
-                var version = temp_dic.version
-                var tags = temp_dic.tags
+                var temp_array = process_directives()
+                var version = temp_array[0]
+                var tags = temp_array[1]
                 if not check_token("DOCUMENT_START"):
                     SGYPaser.error("expected '<document start>', but found %s" % token.type,
                             token.start_mark)
                 token = get_token()
                 var end_mark = token.end_mark
                 var is_explicit = true
-                event = Event.new("DOCUMENT_START", start_mark, end_mark, is_explicit, version, tags)
+                event = Event.new("DOCUMENT_START", is_explicit, version, tags, start_mark, end_mark)
                 states.append(parse_document_end)
                 state = parse_document_content
             else:
@@ -1698,7 +1749,7 @@ class SGYPaser:
                 token = get_token()
                 end_mark = token.end_mark
                 is_explicit = true
-            var event = Event.new("DOCUMENT_END", start_mark, end_mark, is_explicit)
+            var event = Event.new("DOCUMENT_END", is_explicit, start_mark, end_mark)
 
             # Prepare the next state.
             state = parse_document_start
@@ -1777,13 +1828,13 @@ class SGYPaser:
 
         func parse_node(is_block = false, is_indentless_sequence = false):
             var event
+            var tag
+            var anchor
             if check_token("ALIAS"):
                 var token = get_token()
                 event = Event.new("ALIAS", token.value, token.start_mark, token.end_mark)
                 state = states.pop_back()
             else:
-                var anchor = null
-                var tag = null
                 var start_mark = null
                 var end_mark = null
                 var tag_mark = null
@@ -1842,37 +1893,37 @@ class SGYPaser:
                             implicit = [false, true]
                         else:
                             implicit = [false, false]
-                        event = Event.new("SCALAR", anchor, tag, implicit, token.value,
-                                start_mark, end_mark, token.style)
+                        event = Event.new("SCALAR", anchor, tag, implicit, token.value, token.style,
+                                start_mark, end_mark)
                         state = states.pop_back()
                     elif check_token("FLOW_SEQUENCE_START"):
                         end_mark = peek_token().end_mark
                         var flow_style = true
-                        event = Event.new("SEQUENCE_START", anchor, tag, implicit,
-                                start_mark, end_mark, flow_style)
+                        event = Event.new("SEQUENCE_START", anchor, tag, implicit, flow_style,
+                                start_mark, end_mark)
                         state = parse_flow_sequence_first_entry
                     elif check_token("FLOW_MAPPING_START"):
                         end_mark = peek_token().end_mark
                         var flow_style = true
-                        event = Event.new("MAPPING_START", anchor, tag, implicit,
-                                start_mark, end_mark, flow_style)
+                        event = Event.new("MAPPING_START", anchor, tag, implicit, flow_style,
+                                start_mark, end_mark)
                         state = parse_flow_mapping_first_key
                     elif is_block and check_token("BLOCK_SEQUENCE_START"):
                         end_mark = peek_token().start_mark
                         var flow_style = false
-                        event = Event.new("SEQUENCE_START", anchor, tag, implicit,
-                                start_mark, end_mark, flow_style)
+                        event = Event.new("SEQUENCE_START", anchor, tag, implicit, flow_style,
+                                start_mark, end_mark)
                         state = parse_block_sequence_first_entry
                     elif is_block and check_token("BLOCK_MAPPING_START"):
                         end_mark = peek_token().start_mark
                         var flow_style = false
-                        event = Event.new("MAPPING_START", anchor, tag, implicit,
-                                start_mark, end_mark, flow_style)
+                        event = Event.new("MAPPING_START", anchor, tag, implicit, flow_style,
+                                start_mark, end_mark)
                         state = parse_block_mapping_first_key
                     elif anchor != null or tag != null:
                         # Empty scalars are allowed even if a tag or an anchor is
                         # specified.
-                        event = Event.new("SCALAR", anchor, tag, [implicit, false], '',
+                        event = Event.new("SCALAR", anchor, tag, [implicit, false], '', null,
                                 start_mark, end_mark)
                         state = states.pop_back()
                     else:
@@ -2001,9 +2052,8 @@ class SGYPaser:
                 if check_token("KEY"):
                     var token = peek_token()
                     var flow_style = true
-                    var event = Event.new("MAPPING_START", null, null, true,
-                            token.start_mark, token.end_mark,
-                            flow_style)
+                    var event = Event.new("MAPPING_START", null, null, true, flow_style,
+                            token.start_mark, token.end_mark)
                     state = parse_flow_sequence_entry_mapping_key
                     return event
                 elif not check_token("FLOW_SEQUENCE_END"):
@@ -2102,4 +2152,4 @@ class SGYPaser:
             return process_empty_scalar(peek_token().start_mark)
 
         func process_empty_scalar(mark):
-            return Event.new("SCALAR", null, null, [true, false], '', mark, mark)
+            return Event.new("SCALAR", null, null, [true, false], '', null, mark, mark)
