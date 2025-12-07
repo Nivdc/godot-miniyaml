@@ -4,8 +4,8 @@
 # for more detail: https://docs.godotengine.org/en/stable/classes/class_@gdscript.html#class-gdscript-annotation-static-unload
 
 
-class_name SGYP extends Node
-# class_name SGYP extends RefCounted
+# class_name SGYP extends Node
+class_name SGYP extends RefCounted
 # # You can replace the above comment and use SGYP like a normal class, 
 # # but the plugin form allows you to decide whether to enable SGYP.
 
@@ -25,6 +25,7 @@ static func test_parse(yaml_data) -> Variant:
 class SGYPaser:
     func _init():
         Resolver.init_yaml_implicit_resolvers()
+        Constructor.init_yaml_constructors()
 
     func load(yaml_bytes:PackedByteArray) -> Variant:
         var yaml_string = match_bom_return_string(yaml_bytes)
@@ -464,6 +465,8 @@ class SGYPaser:
                     "token_number":token_number,
                     "required":required,
                     "line_index":line_index,
+                    "char_index":char_index,
+                    "column_index":column_index,
                     "mark":get_mark()
                 }
                 possible_simple_keys[flow_level] = key
@@ -701,9 +704,9 @@ class SGYPaser:
                 # If this key starts a new block mapping, we need to add
                 # BLOCK-MAPPING-START.
                 if flow_level == 0:
-                    if add_indent(key.column):
+                    if add_indent(key.column_index):
                         tokens.insert(key.token_number,
-                                Token.new("BLOCK_MAPPING_START"))
+                                Token.new("BLOCK_MAPPING_START", key.mark, key.mark))
 
                 # There cannot be two simple keys one after another.
                 allow_simple_key = false
@@ -726,8 +729,8 @@ class SGYPaser:
                 # the SGYPaser.
                 if flow_level == 0:
                     if add_indent(column_index):
-                        # tokens.append(BlockMappingStartToken(mark, mark))
-                        tokens.append(Token.new("BLOCK_MAPPING_START"))
+                        var mark = get_mark()
+                        tokens.append(Token.new("BLOCK_MAPPING_START", mark, mark))
 
 
                 # Simple keys are allowed after ':' in the block context.
@@ -2341,14 +2344,14 @@ class SGYPaser:
         static func init_yaml_implicit_resolvers():
             Resolver.add_implicit_resolver(
                     'tag:yaml.org,2002:bool',
-                    RegEx.create_from_string(r'''^(?:yes|Yes|YES|no|No|NO
+                    RegEx.create_from_string(r'''(?x)^(?:yes|Yes|YES|no|No|NO
                                 |true|True|TRUE|false|False|FALSE
                                 |on|On|ON|off|Off|OFF)$'''),
                     'yYnNtTfFoO'.split())
 
             Resolver.add_implicit_resolver(
                     'tag:yaml.org,2002:float',
-                    RegEx.create_from_string(r'''^(?:[-+]?(?:[0-9][0-9_]*)\.[0-9_]*(?:[eE][-+][0-9]+)?
+                    RegEx.create_from_string(r'''(?x)^(?:[-+]?(?:[0-9][0-9_]*)\.[0-9_]*(?:[eE][-+][0-9]+)?
                                 |\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?
                                 |[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*
                                 |[-+]?\.(?:inf|Inf|INF)
@@ -2357,7 +2360,7 @@ class SGYPaser:
 
             Resolver.add_implicit_resolver(
                     'tag:yaml.org,2002:int',
-                    RegEx.create_from_string(r'''^(?:[-+]?0b[0-1_]+
+                    RegEx.create_from_string(r'''(?x)^(?:[-+]?0b[0-1_]+
                                 |[-+]?0[0-7_]+
                                 |[-+]?(?:0|[1-9][0-9_]*)
                                 |[-+]?0x[0-9a-fA-F_]+
@@ -2371,14 +2374,14 @@ class SGYPaser:
 
             Resolver.add_implicit_resolver(
                     'tag:yaml.org,2002:null',
-                    RegEx.create_from_string(r'''^(?: ~
+                    RegEx.create_from_string(r'''(?x)^(?: ~
                                 |null|Null|NULL
                                 | )$'''),
                     ['~', 'n', 'N', ''])
 
             Resolver.add_implicit_resolver(
                     'tag:yaml.org,2002:timestamp',
-                    RegEx.create_from_string(r'''^(?:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]
+                    RegEx.create_from_string(r'''(?x)^(?:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]
                                 |[0-9][0-9][0-9][0-9] -[0-9][0-9]? -[0-9][0-9]?
                                 (?:[Tt]|[ \t]+)[0-9][0-9]?
                                 :[0-9][0-9] :[0-9][0-9] (?:\.[0-9]*)?
@@ -2533,7 +2536,7 @@ class SGYPaser:
                 for temp_array in resolvers + wildcard_resolvers:
                     var tag = temp_array[0]
                     var regexp = temp_array[1]
-                    if regexp.match(value) != null:
+                    if regexp.search(value) != null:
                         return tag
                 implicit = implicit[1]
             if yaml_path_resolvers:
@@ -2551,8 +2554,8 @@ class SGYPaser:
 
     class Constructor:
 
-        var yaml_constructors = {}
-        var yaml_multi_constructors = {}
+        static var yaml_constructors = {}
+        static var yaml_multi_constructors = {}
 
         var constructed_objects = {}
         var recursive_objects = {}
@@ -2563,6 +2566,58 @@ class SGYPaser:
 
         func _init(p_composer):
             composer = p_composer
+
+        static func init_yaml_constructors():
+            Constructor.add_constructor(
+                    'tag:yaml.org,2002:null',
+                    Constructor.construct_yaml_null)
+
+            Constructor.add_constructor(
+                    'tag:yaml.org,2002:bool',
+                    Constructor.construct_yaml_bool)
+
+            Constructor.add_constructor(
+                    'tag:yaml.org,2002:int',
+                    Constructor.construct_yaml_int)
+
+            Constructor.add_constructor(
+                    'tag:yaml.org,2002:float',
+                    Constructor.construct_yaml_float)
+
+            # Constructor.add_constructor(
+            #         'tag:yaml.org,2002:binary',
+            #         Constructor.construct_yaml_binary)
+
+            # Constructor.add_constructor(
+            #         'tag:yaml.org,2002:timestamp',
+            #         Constructor.construct_yaml_timestamp)
+
+            # Constructor.add_constructor(
+            #         'tag:yaml.org,2002:omap',
+            #         Constructor.construct_yaml_omap)
+
+            # Constructor.add_constructor(
+            #         'tag:yaml.org,2002:pairs',
+            #         Constructor.construct_yaml_pairs)
+
+            # Constructor.add_constructor(
+            #         'tag:yaml.org,2002:set',
+            #         Constructor.construct_yaml_set)
+
+            Constructor.add_constructor(
+                    'tag:yaml.org,2002:str',
+                    Constructor.construct_yaml_str)
+
+            # Constructor.add_constructor(
+            #         'tag:yaml.org,2002:seq',
+            #         Constructor.construct_yaml_seq)
+
+            # Constructor.add_constructor(
+            #         'tag:yaml.org,2002:map',
+            #         Constructor.construct_yaml_map)
+
+            # Constructor.add_constructor(null,
+            #         Constructor.construct_undefined)
 
         func check_data():
             # If there are more documents available?
@@ -2611,6 +2666,8 @@ class SGYPaser:
             return data
 
         func construct_object(node, deep=false):
+            print(node.tag)
+
             var old_deep
             if node in constructed_objects:
                 return constructed_objects[node]
@@ -2663,7 +2720,7 @@ class SGYPaser:
                 deep_construct = old_deep
             return data
 
-        func construct_scalar(node):
+        static func construct_scalar(node):
             if node.type != "SCALAR":
                 SGYPaser.error("expected a scalar node, but found %s" % node.type,
                         node.start_mark)
@@ -2711,15 +2768,11 @@ class SGYPaser:
                 pairs.append([key, value])
             return pairs
 
-        static func add_constructor(cls, tag, constructor):
-            if not 'yaml_constructors' in cls.__dict__:
-                cls.yaml_constructors = cls.yaml_constructors.copy()
-            cls.yaml_constructors[tag] = constructor
+        static func add_constructor(tag :String, constructor :Callable):
+            yaml_constructors[tag] = constructor
 
-        static func add_multi_constructor(cls, tag_prefix, multi_constructor):
-            if not 'yaml_multi_constructors' in cls.__dict__:
-                cls.yaml_multi_constructors = cls.yaml_multi_constructors.copy()
-            cls.yaml_multi_constructors[tag_prefix] = multi_constructor
+        static func add_multi_constructor(tag_prefix, multi_constructor):
+            yaml_multi_constructors[tag_prefix] = multi_constructor
 
         func flatten_mapping(node):
             var merge = []
@@ -2758,7 +2811,7 @@ class SGYPaser:
             if merge:
                 node.value = merge + node.value
 
-        func construct_yaml_null(node):
+        static func construct_yaml_null(node):
             construct_scalar(node)
             return null
 
@@ -2771,11 +2824,11 @@ class SGYPaser:
             'off':      false,
         }
 
-        func construct_yaml_bool(node):
+        static func construct_yaml_bool(node):
             var value = construct_scalar(node)
-            return bool_values[value.lower()]
+            return bool_values[value.to_lower()]
 
-        func construct_yaml_int(node):
+        static func construct_yaml_int(node):
             var value = construct_scalar(node)
             value = value.replace('_', '')
             var sign = +1
@@ -2806,14 +2859,9 @@ class SGYPaser:
             else:
                 return sign*int(value)
 
-        # inf_value = 1e300
-        # while inf_value != inf_value*inf_value:
-        #     inf_value *= inf_value
-        # nan_value = -inf_value/inf_value   # Trying to make a quiet NaN (like C99).
-
-        func construct_yaml_float(node):
+        static func construct_yaml_float(node):
             var value = construct_scalar(node)
-            value = value.replace('_', '').lower()
+            value = value.replace('_', '').to_lower()
             var sign = +1
             if value[0] == '-':
                 sign = -1
@@ -2854,7 +2902,7 @@ class SGYPaser:
         #                 "failed to decode base64 data: %s" % exc, node.start_mark)
 
         # static var timestamp_regexp = RegEx.create_from_string(
-        #         r'''^(?P<year>[0-9][0-9][0-9][0-9])
+        #         r'''(?x)^(?P<year>[0-9][0-9][0-9][0-9])
         #             -(?P<month>[0-9][0-9]?)
         #             -(?P<day>[0-9][0-9]?)
         #             (?:(?:[Tt]|[ \t]+)
@@ -2945,8 +2993,8 @@ class SGYPaser:
         #     value = construct_mapping(node)
         #     data.update(value)
 
-        # func construct_yaml_str(node):
-        #     return construct_scalar(node)
+        static func construct_yaml_str(node):
+            return construct_scalar(node)
 
         # func construct_yaml_seq(node):
         #     data = []
@@ -2969,6 +3017,6 @@ class SGYPaser:
         #         state = construct_mapping(node)
         #         data.__dict__.update(state)
 
-        func construct_undefined(node):
-            SGYPaser.error("could not determine a constructor for the tag %s" % node.tag,
-                    node.start_mark)
+        # static func construct_undefined(node):
+        #     SGYPaser.error("could not determine a constructor for the tag %s" % node.tag,
+        #             node.start_mark)
