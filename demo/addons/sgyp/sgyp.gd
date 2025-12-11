@@ -9,7 +9,7 @@ class_name SGYP extends RefCounted
 # # You can replace the above comment and use SGYP like a normal class, 
 # # but the plugin form allows you to decide whether to enable SGYP.
 
-static func test_parse(yaml_data) -> Variant:
+static func parse(yaml_data) -> Variant:
     var yaml_data_type :String = type_string(typeof(yaml_data))
     if yaml_data_type == "String":
         return SGYPaser.new().load(yaml_data.to_utf8_buffer())
@@ -21,18 +21,24 @@ static func test_parse(yaml_data) -> Variant:
         SGYPaser.error("Unsupported YAML data type.")
         return null
 
+static func dump(p_var:Variant):
+    print(p_var)
+    SGYPaser.new().dump(p_var)
 
 class SGYPaser:
     func _init():
         Resolver.init_yaml_implicit_resolvers()
         Constructor.init_yaml_constructors()
+        Representer.init_yaml_representers()
+        Serializer.set_up()
+        Emitter.set_up()
 
     func load(yaml_bytes:PackedByteArray) -> Variant:
         var yaml_string = match_bom_return_string(yaml_bytes)
         var tokens = Scanner.new(yaml_string).scan()
         var result = Constructor.new(Composer.new(Parser.new(tokens))).get_single_data()
 
-        print(result)
+        # print(result)
         # for t in tokens:
         #     print(t.type)
 
@@ -40,6 +46,13 @@ class SGYPaser:
         #     print(e.type)
 
         return null
+
+    func dump(p_var:Variant):
+        Emitter.stream = MockStream.new()
+        Serializer.open()
+        Representer.represent(p_var)
+        Serializer.close()
+        Emitter.stream.print_data()
 
     static func soft_assert(condition: bool, message: String = "Soft assertion failed"):
         if not condition: push_error("SGYP Error: " + message)
@@ -78,6 +91,8 @@ class SGYPaser:
             # Default
             _                    : return "UTF-8"
 
+
+    # Load Part
 
     class Token:
         # Scanner produces tokens of the following types:
@@ -193,7 +208,7 @@ class SGYPaser:
         # but SGYP doesn't need to handle streaming data, 
         # so it outputs the results (i.e tokens) to the SGYPaser all at once.
 
-        # and '\x85\u2028\u2029' is not supported.
+        # and '' is not supported.
 
         # If you want to learn more details, you can view the PyYAML source code.
         # Scanner: https://github.com/yaml/pyyaml/blob/main/lib/yaml/scanner.py
@@ -934,7 +949,7 @@ class SGYPaser:
             # See the specification for details.
             var length = 0
             var ch = peek(length)
-            while '0' <= ch <= '9' or 'A' <= ch <= 'Z' or 'a' <= ch <= 'z'  \
+            while ('0' <= ch and ch <= '9') or ('A' <= ch and ch <= 'Z') or ('a' <= ch and ch <= 'z')  \
                     or ch in '-_':
                 length += 1
                 ch = peek(length)
@@ -1034,7 +1049,7 @@ class SGYPaser:
             forward()
             var length = 0
             var ch = peek(length)
-            while '0' <= ch <= '9' or 'A' <= ch <= 'Z' or 'a' <= ch <= 'z'  \
+            while ('0' <= ch and ch <= '9') or ('A' <= ch and ch <= 'Z') or ('a' <= ch and ch <= 'z')  \
                     or ch in '-_':
                 length += 1
                 ch = peek(length)
@@ -1471,7 +1486,7 @@ class SGYPaser:
             var length = 1
             ch = peek(length)
             if ch != ' ':
-                while '0' <= ch <= '9' or 'A' <= ch <= 'Z' or 'a' <= ch <= 'z'  \
+                while ('0' <= ch and ch <= '9') or ('A' <= ch and ch <= 'Z') or ('a' <= ch and ch <= 'z')  \
                         or ch in '-_':
                     length += 1
                     ch = peek(length)
@@ -1490,7 +1505,7 @@ class SGYPaser:
             var chunks = []
             var length = 0
             var ch = peek(length)
-            while '0' <= ch <= '9' or 'A' <= ch <= 'Z' or 'a' <= ch <= 'z'  \
+            while ('0' <= ch and ch <= '9') or ('A' <= ch and ch <= 'Z') or ('a' <= ch and ch <= 'z')  \
                     or ch in '-;/?:@&=+$,_.!~*\'()[]%':
                 if ch == '%':
                     chunks.append(prefix(length))
@@ -1603,8 +1618,12 @@ class SGYPaser:
                     value = args[3]
                     style = args[4]
 
-            start_mark = args[-2]
-            end_mark = args[-1]
+            if args.size() > 2 and (args[-2]!=null and args[-1]!=null) and\
+                args[-2].get_class() == "Mark" and \
+                args[-1].get_class() == "Mark":
+
+                start_mark = args[-2]
+                end_mark = args[-1]
 
     class Parser:
         const DEFAULT_TAGS = {
@@ -2192,8 +2211,12 @@ class SGYPaser:
                     value = args[1]
                     style = args[2]
 
-            start_mark = args[-2]
-            end_mark = args[-1]
+            if args.size() > 2 and (args[-2]!=null and args[-1]!=null) and\
+                args[-2].get_class() == "Mark" and \
+                args[-1].get_class() == "Mark":
+
+                start_mark = args[-2]
+                end_mark = args[-1]
 
     class Composer:
         var anchors = {}
@@ -2559,7 +2582,7 @@ class SGYPaser:
 
         var constructed_objects = {}
         var recursive_objects = {}
-        var state_generators = []
+        # var state_generators = []
         var deep_construct = false
 
         var composer :Composer
@@ -2604,9 +2627,9 @@ class SGYPaser:
             #         'tag:yaml.org,2002:set',
             #         Constructor.construct_yaml_set)
 
-            Constructor.add_constructor(
-                    'tag:yaml.org,2002:str',
-                    Constructor.construct_yaml_str)
+            # Constructor.add_constructor(
+            #         'tag:yaml.org,2002:str',
+            #         Constructor.construct_yaml_str)
 
             # Constructor.add_constructor(
             #         'tag:yaml.org,2002:seq',
@@ -2654,20 +2677,18 @@ class SGYPaser:
 
         func construct_document(node):
             var data = construct_object(node)
-            while state_generators:
-                state_generators = state_generators
-                state_generators = []
-                for generator in state_generators:
-                    for dummy in generator:
-                        pass
+            # while state_generators:
+            #     state_generators = state_generators
+            #     state_generators = []
+            #     for generator in state_generators:
+            #         for dummy in generator:
+            #             pass
             constructed_objects = {}
             recursive_objects = {}
             deep_construct = false
             return data
 
         func construct_object(node, deep=false):
-            print(node.tag)
-
             var old_deep
             if node in constructed_objects:
                 return constructed_objects[node]
@@ -2838,9 +2859,9 @@ class SGYPaser:
                 value = value.substr(1)
             if value == '0':
                 return 0
-            elif value.startswith('0b'):
+            elif value.begins_with('0b'):
                 return sign*value.substr(2).bin_to_int()
-            elif value.startswith('0x'):
+            elif value.begins_with('0x'):
                 return sign*value.substr(2).hex_to_int()
             # FIXME
             # elif value[0] == '0':
@@ -2926,7 +2947,7 @@ class SGYPaser:
         #     minute = int(values['minute'])
         #     second = int(values['second'])
         #     fraction = 0
-        #     tzinfo = None
+        #     tzinfo = null
         #     if values['fraction']:
         #         fraction = values['fraction'].substr(0,6)
         #         while len(fraction) < 6:
@@ -2993,8 +3014,8 @@ class SGYPaser:
         #     value = construct_mapping(node)
         #     data.update(value)
 
-        static func construct_yaml_str(node):
-            return construct_scalar(node)
+        # static func construct_yaml_str(node):
+        #     return construct_scalar(node)
 
         # func construct_yaml_seq(node):
         #     data = []
@@ -3020,3 +3041,1497 @@ class SGYPaser:
         # static func construct_undefined(node):
         #     SGYPaser.error("could not determine a constructor for the tag %s" % node.tag,
         #             node.start_mark)
+
+
+    # Dump Part
+
+    class Representer:
+
+        static var yaml_representers = {}
+        static var yaml_multi_representers = {}
+        
+        static var represented_objects = {}
+        static var object_keeper = []
+        static var alias_key = null
+
+        static var default_style
+        static var default_flow_style :bool
+        static var sort_keys          :bool
+
+        func _init(p_default_style=null, p_default_flow_style=false, p_sort_keys=true):
+            default_style       = p_default_style
+            default_flow_style  = p_default_flow_style
+            sort_keys           = p_sort_keys
+
+        static func init_yaml_representers():
+            Representer.add_representer("Nil",
+                    Representer.represent_null)
+
+            Representer.add_representer("String",
+                    Representer.represent_str)
+
+            # Representer.add_representer(bytes,
+            #         Representer.represent_binary)
+
+            Representer.add_representer("bool",
+                    Representer.represent_bool)
+
+            Representer.add_representer("int",
+                    Representer.represent_int)
+
+            Representer.add_representer("float",
+                    Representer.represent_float)
+
+            Representer.add_representer("Array",
+                    Representer.represent_array)
+
+            # Representer.add_representer(tuple,
+            #         Representer.represent_list)
+
+            Representer.add_representer("Dictionary",
+                    Representer.represent_dict)
+
+            # Representer.add_representer(set,
+            #         Representer.represent_set)
+
+            # Representer.add_representer(datetime.date,
+            #         Representer.represent_date)
+
+            # Representer.add_representer(datetime.datetime,
+            #         Representer.represent_datetime)
+
+            Representer.add_representer(null,
+                    Representer.represent_undefined)
+
+
+        static func represent(data):
+            var node = represent_data(data)
+            Serializer.serialize(node)
+            represented_objects = {}
+            object_keeper = []
+            alias_key = null
+
+        static func represent_data(data):
+            if ignore_aliases(data):
+                alias_key = null
+            else:
+                alias_key = data.get_instance_id()
+            if alias_key != null:
+                if alias_key in represented_objects:
+                    var node = represented_objects[alias_key]
+                    return node
+                object_keeper.append(data)
+
+            var node
+            var data_type = type_string(typeof(data)) if type_string(typeof(data)) != "Object" else data.get_class()
+            if data_type in yaml_representers:
+                node = yaml_representers[data_type].call(data)
+            elif null in yaml_multi_representers:
+                node = yaml_multi_representers[null].call(data)
+            elif null in yaml_representers:
+                node = yaml_representers[null].call(data)
+            else:
+                node = YAMLNode.new("SCALAR", null, str(data))
+            return node
+
+        static func add_representer(data_type, representer):
+            yaml_representers[data_type] = representer
+
+        static func add_multi_representer(data_type, representer):
+            yaml_multi_representers[data_type] = representer
+
+        static func represent_scalar(tag, value, style=null):
+            if style == null:
+                style = default_style
+            var node = YAMLNode.new("SCALAR", tag, value, style)
+            if alias_key != null:
+                represented_objects[alias_key] = node
+            return node
+
+        static func represent_sequence(tag, sequence, flow_style=null):
+            var value = []
+            var node = YAMLNode.new("SEQUENCE", tag, value, flow_style)
+            if alias_key != null:
+                represented_objects[alias_key] = node
+            var best_style = true
+            for item in sequence:
+                var node_item :YAMLNode = represent_data(item)
+                if not (node_item.type == "SCALAR" and node_item.style == null):
+                    best_style = false
+                value.append(node_item)
+            if flow_style == null:
+                if default_flow_style != null:
+                    node.flow_style = default_flow_style
+                else:
+                    node.flow_style = best_style
+            return node
+
+        static func represent_mapping(tag, mapping, flow_style=null):
+            var value = []
+            var node = YAMLNode.new("MAPPING", tag, value, flow_style)
+            if alias_key != null:
+                represented_objects[alias_key] = node
+            var best_style = true
+            # if hasattr(mapping, 'items'):
+            #     mapping = list(mapping.items())
+            #     if sort_keys:
+            #         # try:
+            #         mapping = sorted(mapping)
+            #         # except TypeError:
+            #         #     pass
+
+            if sort_keys:
+                mapping.sort()
+
+            # for temp_array in mapping:
+            #     item_key = temp_array[0]
+            #     item_value = temp_array[1]
+            #     node_key = represent_data(item_key)
+            #     node_value = represent_data(item_value)
+            #     if not (isinstance(node_key, ScalarNode) and not node_key.style):
+            #         best_style = false
+            #     if not (isinstance(node_value, ScalarNode) and not node_value.style):
+            #         best_style = false
+            #     value.append([node_key, node_value])
+            
+            for key in mapping:
+                value = mapping[key]
+                var node_key = represent_data(key)
+                var node_value = represent_data(value)
+                if not (node_key.type   == "SCALAR"  and not node_key.style):
+                    best_style = false
+                if not (node_value.type == "SCALAR"  and not node_value.style):
+                    best_style = false
+                value.append([node_key, node_value])
+
+            if flow_style == null:
+                if default_flow_style != null:
+                    node.flow_style = default_flow_style
+                else:
+                    node.flow_style = best_style
+
+            return node
+
+        static func ignore_aliases(data):
+            if type_string(typeof(data)) == "Object":
+                return false
+            return true
+
+
+        static func represent_null(data):
+            return represent_scalar('tag:yaml.org,2002:null', 'null')
+
+        static func represent_str(data :String):
+            return represent_scalar('tag:yaml.org,2002:str', data)
+
+        # func represent_binary(data):
+        #     if hasattr(base64, 'encodebytes'):
+        #         data = base64.encodebytes(data).decode('ascii')
+        #     else:
+        #         data = base64.encodestring(data).decode('ascii')
+        #     return represent_scalar('tag:yaml.org,2002:binary', data, style='|')
+
+        static func represent_bool(data :bool):
+            var value = 'true' if data else 'false'
+            return represent_scalar('tag:yaml.org,2002:bool', value)
+
+        static func represent_int(data :int):
+            return represent_scalar('tag:yaml.org,2002:int', str(data))
+
+        static func represent_float(data :float):
+            var value
+            if data == NAN:
+                value = '.nan'
+            elif data == INF:
+                value = '.inf'
+            elif data == -INF:
+                value = '-.inf'
+            else:
+                value = str(data).to_lower()
+            return represent_scalar('tag:yaml.org,2002:float', value)
+
+        static func represent_array(data):
+            print("WWWWWWWWWWWWW")
+            return represent_sequence('tag:yaml.org,2002:seq', data)
+
+        static func represent_dict(data):
+            return represent_mapping('tag:yaml.org,2002:map', data)
+
+        static func represent_undefined(data):
+            SGYPaser.error("cannot represent an object", data)
+
+    class Serializer:
+        const ANCHOR_TEMPLATE = 'id%03d'
+
+        static var use_encoding
+        static var use_explicit_start = false
+        static var use_explicit_end   = false
+        static var use_version
+        static var use_tags
+        static var serialized_nodes = {}
+        static var anchors          = {}
+        static var last_anchor_id   = 0
+        static var closed           = null
+
+        static func set_up(encoding=null,
+                explicit_start=false, explicit_end=false, version=null, tags=null):
+            use_encoding       = encoding
+            use_explicit_start = explicit_start
+            use_explicit_end   = explicit_end
+            use_version        = version
+            use_tags           = tags
+
+        static func open():
+            if closed == null:
+                Emitter.emit(Event.new("STREAM_START"))
+                closed = false
+            elif closed:
+                SGYPaser.error("serializer is closed")
+            else:
+                SGYPaser.error("serializer is already opened")
+
+        static func close():
+            if closed == null:
+                SGYPaser.error("serializer is not opened")
+            elif not closed:
+                Emitter.emit(Event.new("STREAM_END"))
+                closed = true
+
+        static func serialize(node):
+            if closed == null:
+                SGYPaser.error("serializer is not opened")
+            elif closed:
+                SGYPaser.error("serializer is closed")
+            Emitter.emit(Event.new("DOCUMENT_START", use_explicit_start,
+                use_version, use_tags))
+            anchor_node(node)
+            serialize_node(node, null, null)
+            Emitter.emit(Event.new("DOCUMENT_END", use_explicit_end))
+            serialized_nodes = {}
+            anchors = {}
+            last_anchor_id = 0
+
+        static func anchor_node(node):
+            if node in anchors:
+                if anchors[node] == null:
+                    anchors[node] = generate_anchor(node)
+            else:
+                anchors[node] = null
+                if node.type == "SEQUENCE":
+                    for item in node.value:
+                        anchor_node(item)
+                elif node.type == "MAPPING":
+                    for temp_array in node.value:
+                        var key = temp_array[0]
+                        var value = temp_array[0][1]
+                        anchor_node(key)
+                        anchor_node(value)
+
+        static func generate_anchor(node):
+            last_anchor_id += 1
+            return ANCHOR_TEMPLATE % last_anchor_id
+
+        static func serialize_node(node, parent, index):
+            var alias = anchors[node]
+            if node in serialized_nodes:
+                Emitter.emit(Event.new("ALIAS", alias))
+            else:
+                serialized_nodes[node] = true
+                Resolver.descend_resolver(parent, index)
+                if node.type == "SCALAR":
+                    var detected_tag = Resolver.resolve("SCALAR", node.value, [true, false])
+                    var default_tag = Resolver.resolve("SCALAR", node.value, [false, true])
+                    var implicit = [(node.tag == detected_tag), (node.tag == default_tag)]
+                    Emitter.emit(Event.new("SCALAR", alias, node.tag, implicit, node.value,
+                        node.style))
+                elif node.type == "SEQUENCE":
+                    var implicit = (node.tag
+                                == Resolver.resolve("SEQUENCE", node.value, true))
+                    Emitter.emit(Event.new("SEQUENCE_START", alias, node.tag, implicit,
+                        node.flow_style))
+                    index = 0
+                    for item in node.value:
+                        serialize_node(item, node, index)
+                        index += 1
+                    Emitter.emit(Event.new("SEQUENCE_END"))
+                elif node.type == "MAPPING":
+                    var implicit = (node.tag
+                                == Resolver.resolve("MAPPING", node.value, true))
+                    Emitter.emit(Event.new("MAPPING_START", alias, node.tag, implicit,
+                        node.flow_style))
+                    for temp_array in node.value:
+                        var key = temp_array[0]
+                        var value = temp_array[0][1]
+                        serialize_node(key, node, null)
+                        serialize_node(value, node, key)
+                    Emitter.emit(Event.new("MAPPING_END"))
+                Resolver.ascend_resolver()
+
+    class Emitter:
+        # Emitter expects events obeying the following grammar:
+        # stream ::= STREAM-START document* STREAM-END
+        # document ::= DOCUMENT-START node DOCUMENT-END
+        # node ::= SCALAR | sequence | mapping
+        # sequence ::= SEQUENCE-START node* SEQUENCE-END
+        # mapping ::= MAPPING-START (node node)* MAPPING-END
+
+
+        const DEFAULT_TAG_PREFIXES = {
+            '!' : '!',
+            'tag:yaml.org,2002:' : '!!',
+        }
+
+
+        # The stream should have the methods `write` and possibly `flush`.
+        static var stream
+
+        # Encoding can be overridden by STREAM-START.
+        static var encoding = null
+
+        # Emitter is a state machine with a stack of states to handle nested
+        # structures.
+        static var states = []
+        static var state : Callable = expect_stream_start
+
+        # Current event and the event queue.
+        static var events = []
+        static var event = null
+
+        # The current indentation level and the stack of previous indents.
+        static var indents = []
+        static var indent = null
+
+        # Flow level.
+        static var flow_level = 0
+
+        # Contexts.
+        static var root_context = false
+        static var sequence_context = false
+        static var mapping_context = false
+        static var simple_key_context = false
+
+        # Characteristics of the last emitted character:
+        #  - current position.
+        #  - is it a whitespace?
+        #  - is it an indention character
+        #    (indentation space, '-', '?', or ':')?
+        static var line = 0
+        static var column = 0
+        static var whitespace = true
+        static var indention = true
+
+        # Whether the document requires an explicit document indicator
+        static var open_ended = false
+
+        # Formatting details.
+        static var canonical
+        static var allow_unicode
+        static var best_indent = 2
+        static var best_width = 80
+        static var best_line_break = '\n'
+
+
+        # Tag prefixes.
+        static var tag_prefixes = null
+
+        # Prepared anchor and tag.
+        static var prepared_anchor = null
+        static var prepared_tag = null
+
+        # Scalar analysis and style.
+        static var analysis = null
+        static var style = null
+
+        static func set_up(p_canonical=null, p_allow_unicode=null, indent=2, width=80, line_break='\n'):
+            canonical = p_canonical
+            allow_unicode = p_allow_unicode
+
+            if 1 < indent and indent < 10:
+                best_indent = indent
+            if width > best_indent*2:
+                best_width = width
+            if line_break in ['\r', '\n', '\r\n']:
+                best_line_break = line_break
+
+        static func emit(new_event:Event):
+            print(new_event.type)
+            events.append(new_event)
+            while not need_more_events():
+                event = events.pop_front()
+                state.call()
+                event = null
+
+        # In some cases, we wait for a few next events before emitting.
+
+        static func need_more_events():
+            if events.is_empty():
+                return true
+            event = events[0]
+            if event.type == "DOCUMENT_START":
+                return need_events(1)
+            elif event.type == "SEQUENCE_START":
+                return need_events(2)
+            elif event.type == "MAPPING_START":
+                return need_events(3)
+            else:
+                return false
+
+        static func need_events(count):
+            var level = 0
+            for event in events.slice(1, events.size()):
+                if event.type in ["DOCUMENT_START", "SEQUENCE_START", "MAPPING_START"]:
+                    level += 1
+                elif event.type in ["DOCUMENT_END", "SEQUENCE_END", "MAPPING_END"]:
+                    level -= 1
+                elif event.type == "STREAM_END":
+                    level = -1
+                if level < 0:
+                    return false
+            return (len(events) < count+1)
+
+        static func increase_indent(flow=false, indentless=false):
+            indents.append(indent)
+            if indent == null:
+                if flow:
+                    indent = best_indent
+                else:
+                    indent = 0
+            elif not indentless:
+                indent += best_indent
+
+        # States.
+
+        # Stream handlers.
+
+        static func expect_stream_start():
+            if event.type == "STREAM_START":
+                #FIXME
+                # if event.encoding != null:
+                #     encoding = event.encoding
+                write_stream_start()
+                state = expect_first_document_start
+            else:
+                SGYPaser.error("expected StreamStartEvent, but got %s"
+                        % event)
+
+        static func expect_nothing():
+            SGYPaser.error("expected nothing, but got %s" % event)
+
+
+        # Document handlers.
+
+        static func expect_first_document_start():
+            return expect_document_start(true)
+
+        static func expect_document_start(is_first_document=false):
+            if event.type == "DOCUMENT_START":
+                if (event.yaml_version or event.tags) and open_ended:
+                    write_indicator('...', true)
+                    write_indent()
+                if event.yaml_version != null:
+                    var version_text = prepare_version(event.yaml_version)
+                    write_version_directive(version_text)
+                tag_prefixes = DEFAULT_TAG_PREFIXES.duplicate()
+                if event.tags:
+                    var handles = event.tags.keys()
+                    handles.sort()
+                    for handle in handles:
+                        var prefix = event.tags[handle]
+                        tag_prefixes[prefix] = handle
+                        var handle_text = prepare_tag_handle(handle)
+                        var prefix_text = prepare_tag_prefix(prefix)
+                        write_tag_directive(handle_text, prefix_text)
+                var implicit = (is_first_document and not event.is_explicit and not canonical
+                        and not event.yaml_version and not event.tags
+                        and not check_empty_document())
+                if not implicit:
+                    write_indent()
+                    write_indicator('---', true)
+                    if canonical:
+                        write_indent()
+                state = expect_document_root
+            elif event.type == "STREAM_END":
+                if open_ended:
+                    write_indicator('...', true)
+                    write_indent()
+                write_stream_end()
+                state = expect_nothing
+            else:
+                SGYPaser.error("expected DocumentStartEvent, but got %s"
+                        % event)
+
+        static func expect_document_end():
+            if event.type == "DOCUMENT_END":
+                write_indent()
+                if event.is_explicit:
+                    write_indicator('...', true)
+                    write_indent()
+                flush_stream()
+                state = expect_document_start
+            else:
+                SGYPaser.error("expected DocumentEndEvent, but got %s"
+                        % event)
+
+        static func expect_document_root():
+            states.append(expect_document_end)
+            expect_node(ExpectNodeType.ROOT)
+
+        # Node handlers.
+        enum ExpectNodeType {ROOT, SEQUENCE, MAPPING}
+        static func expect_node(type, simple_key=false):
+            root_context        = (type == ExpectNodeType.ROOT)
+            sequence_context    = (type == ExpectNodeType.SEQUENCE)
+            mapping_context     = (type == ExpectNodeType.MAPPING)
+            simple_key_context  = simple_key
+            if event.type == "ALIAS":
+                expect_alias()
+            elif event.type in ["SCALAR", "SEQUENCE_START", "MAPPING_START"]:
+                process_anchor('&')
+                process_tag()
+                if event.type == "SCALAR":
+                    expect_scalar()
+                elif event.type == "SEQUENCE_START":
+                    if flow_level or canonical or event.flow_style   \
+                            or check_empty_sequence():
+                        expect_flow_sequence()
+                    else:
+                        expect_block_sequence()
+                elif event.type == "MAPPING_START":
+                    if flow_level or canonical or event.flow_style   \
+                            or check_empty_mapping():
+                        expect_flow_mapping()
+                    else:
+                        expect_block_mapping()
+            else:
+                SGYPaser.error("expected NodeEvent, but got %s" % event)
+
+        static func expect_alias():
+            if event.anchor == null:
+                SGYPaser.error("anchor is not specified for alias")
+            process_anchor('*')
+            state = states.pop_back()
+
+        static func expect_scalar():
+            var flow = true
+            increase_indent(flow)
+            process_scalar()
+            indent = indents.pop_back()
+            state = states.pop_back()
+
+        # Flow sequence handlers.
+
+        static func expect_flow_sequence():
+            var whitespace=true
+            write_indicator('[', true, whitespace)
+            flow_level += 1
+            var flow = true
+            increase_indent(flow)
+            state = expect_first_flow_sequence_item
+
+        static func expect_first_flow_sequence_item():
+            if event.type == "SEQUENCE_END":
+                indent = indents.pop_back()
+                flow_level -= 1
+                write_indicator(']', false)
+                state = states.pop_back()
+            else:
+                if canonical or column > best_width:
+                    write_indent()
+                states.append(expect_flow_sequence_item)
+                expect_node(ExpectNodeType.SEQUENCE)
+
+        static func expect_flow_sequence_item():
+            if event.type == "SEQUENCE_END":
+                indent = indents.pop_back()
+                flow_level -= 1
+                if canonical:
+                    write_indicator(',', false)
+                    write_indent()
+                write_indicator(']', false)
+                state = states.pop_back()
+            else:
+                write_indicator(',', false)
+                if canonical or column > best_width:
+                    write_indent()
+                states.append(expect_flow_sequence_item)
+                expect_node(ExpectNodeType.SEQUENCE)
+
+        # Flow mapping handlers.
+
+        static func expect_flow_mapping():
+            var whitespace=true
+            write_indicator('{', true, whitespace)
+            flow_level += 1
+            var flow=true
+            increase_indent(flow)
+            state = expect_first_flow_mapping_key
+
+        static func expect_first_flow_mapping_key():
+            if event.type == "MAPPING_END":
+                indent = indents.pop_back()
+                flow_level -= 1
+                write_indicator('}', false)
+                state = states.pop_back()
+            else:
+                if canonical or column > best_width:
+                    write_indent()
+                if not canonical and check_simple_key():
+                    states.append(expect_flow_mapping_simple_value)
+                    expect_node(ExpectNodeType.MAPPING, true)
+                else:
+                    write_indicator('?', true)
+                    states.append(expect_flow_mapping_value)
+                    expect_node(ExpectNodeType.MAPPING)
+
+        static func expect_flow_mapping_key():
+            if event.type == "MAPPING_END":
+                indent = indents.pop_back()
+                flow_level -= 1
+                if canonical:
+                    write_indicator(',', false)
+                    write_indent()
+                write_indicator('}', false)
+                state = states.pop_back()
+            else:
+                write_indicator(',', false)
+                if canonical or column > best_width:
+                    write_indent()
+                if not canonical and check_simple_key():
+                    states.append(expect_flow_mapping_simple_value)
+                    expect_node(ExpectNodeType.MAPPING, true)
+                else:
+                    write_indicator('?', true)
+                    states.append(expect_flow_mapping_value)
+                    expect_node(ExpectNodeType.MAPPING)
+
+        static func expect_flow_mapping_simple_value():
+            write_indicator(':', false)
+            states.append(expect_flow_mapping_key)
+            expect_node(ExpectNodeType.MAPPING)
+
+        static func expect_flow_mapping_value():
+            if canonical or column > best_width:
+                write_indent()
+            write_indicator(':', true)
+            states.append(expect_flow_mapping_key)
+            expect_node(ExpectNodeType.MAPPING)
+
+        # Block sequence handlers.
+
+        static func expect_block_sequence():
+            var indentless = (mapping_context and not indention)
+            increase_indent(false, indentless)
+            state = expect_first_block_sequence_item
+
+        static func expect_first_block_sequence_item():
+            return expect_block_sequence_item(true)
+
+        static func expect_block_sequence_item(first=false):
+            if not first and event.type == "SEQUENCE_END":
+                indent = indents.pop_back()
+                state = states.pop_back()
+            else:
+                write_indent()
+                var indention=true
+                write_indicator('-', true, false, indention)
+                states.append(expect_block_sequence_item)
+                expect_node(ExpectNodeType.SEQUENCE)
+
+        # Block mapping handlers.
+
+        static func expect_block_mapping():
+            var flow=false
+            increase_indent(flow)
+            state = expect_first_block_mapping_key
+
+        static func expect_first_block_mapping_key():
+            return expect_block_mapping_key(true)
+
+        static func expect_block_mapping_key(first=false):
+            if not first and event.type == "MAPPING_END":
+                indent = indents.pop_back()
+                state = states.pop_back()
+            else:
+                write_indent()
+                if check_simple_key():
+                    states.append(expect_block_mapping_simple_value)
+                    expect_node(ExpectNodeType.MAPPING, true)
+                else:
+                    var indention=true
+                    write_indicator('?', true, false, indention)
+                    states.append(expect_block_mapping_value)
+                    expect_node(ExpectNodeType.MAPPING)
+
+        static func expect_block_mapping_simple_value():
+            write_indicator(':', false)
+            states.append(expect_block_mapping_key)
+            expect_node(ExpectNodeType.MAPPING)
+
+        static func expect_block_mapping_value():
+            write_indent()
+            var indention=true
+            write_indicator(':', true, false, indention)
+            states.append(expect_block_mapping_key)
+            expect_node(ExpectNodeType.MAPPING)
+
+        # Checkers.
+
+        static func check_empty_sequence():
+            return (event.type == "SEQUENCE_START" and events.is_empty() == false
+                    and events[0].type == "SEQUENCE_END")
+
+        static func check_empty_mapping():
+            return (event.type == "MAPPING_START" and events.is_empty() == false
+                    and events[0].type == "MAPPING_END")
+
+        static func check_empty_document():
+            if not event.type == "DOCUMENT_START" or events.is_empty():
+                return false
+            event = events[0]
+            return (event.type == "SCALAR" and event.anchor == null
+                    and event.tag == null and event.implicit and event.value == '')
+
+        static func check_simple_key():
+            var length = 0
+            if event.type in ["SEQUENCE_START", "MAPPING_START", "ALIAS", "SCALAR"] and event.anchor != null:
+                if prepared_anchor == null:
+                    prepared_anchor = prepare_anchor(event.anchor)
+                length += len(prepared_anchor)
+            if event.type in ["SCALAR", "SEQUENCE_START", "MAPPING_START"]  \
+                    and event.tag != null:
+                if prepared_tag == null:
+                    prepared_tag = prepare_tag(event.tag)
+                length += len(prepared_tag)
+            if event.type == "SCALAR":
+                if analysis == null:
+                    analysis = analyze_scalar(event.value)
+                length += len(analysis.scalar)
+            return (length < 128 and (event.type == "ALIAS"
+                or (event.type == "SCALAR"
+                        and not analysis.empty and not analysis.multiline)
+                or check_empty_sequence() or check_empty_mapping()))
+
+        # Anchor, Tag, and Scalar processors.
+
+        static func process_anchor(indicator):
+            if event.anchor == null:
+                prepared_anchor = null
+                return
+            if prepared_anchor == null:
+                prepared_anchor = prepare_anchor(event.anchor)
+            if prepared_anchor:
+                write_indicator(indicator+prepared_anchor, true)
+            prepared_anchor = null
+
+        static func process_tag():
+            var tag = event.tag
+            if event.type == "SCALAR":
+                if style == null:
+                    style = choose_scalar_style()
+                if ((not canonical or tag == null) and
+                    ((style == '' and event.implicit[0])
+                            or (style != '' and event.implicit[1]))):
+                    prepared_tag = null
+                    return
+                if event.implicit[0] and tag == null:
+                    tag = '!'
+                    prepared_tag = null
+            else:
+                if (not canonical or tag == null) and event.implicit:
+                    prepared_tag = null
+                    return
+            if tag == null:
+                SGYPaser.error("tag is not specified")
+            if prepared_tag == null:
+                prepared_tag = prepare_tag(tag)
+            if prepared_tag:
+                write_indicator(prepared_tag, true)
+            prepared_tag = null
+
+        static func choose_scalar_style():
+            if analysis == null:
+                analysis = analyze_scalar(event.value)
+            if event.style == '"' or canonical:
+                return '"'
+            if event.style == null and event.implicit[0]:
+                if (not (simple_key_context and
+                        (analysis.empty or analysis.multiline))
+                    and (flow_level and analysis.allow_flow_plain
+                        or (not flow_level and analysis.allow_block_plain))):
+                    return ''
+            if event.style and event.style in '|>':
+                if (not flow_level and not simple_key_context
+                        and analysis.allow_block):
+                    return event.style
+            if not event.style or event.style == '\'':
+                if (analysis.allow_single_quoted and
+                        not (simple_key_context and analysis.multiline)):
+                    return '\''
+            return '"'
+
+        static func process_scalar():
+            if analysis == null:
+                analysis = analyze_scalar(event.value)
+            if style == null:
+                style = choose_scalar_style()
+            var split = (not simple_key_context)
+            #if analysis.multiline and split    \
+            #        and (not style or style in '\'\"'):
+            #    write_indent()
+            if style == '"':
+                write_double_quoted(analysis.scalar, split)
+            elif style == '\'':
+                write_single_quoted(analysis.scalar, split)
+            elif style == '>':
+                write_folded(analysis.scalar)
+            elif style == '|':
+                write_literal(analysis.scalar)
+            else:
+                write_plain(analysis.scalar, split)
+            analysis = null
+            style = null
+
+        # Analyzers.
+
+        static func prepare_version(version):
+            var major = version[0]
+            var minor = version[1]
+            if major != 1:
+                SGYPaser.error("unsupported YAML version: %d.%d" % [major, minor])
+            return '%d.%d' % [major, minor]
+
+        static func prepare_tag_handle(handle):
+            if not handle:
+                SGYPaser.error("tag handle must not be empty")
+            if handle[0] != '!' or handle[-1] != '!':
+                SGYPaser.error("tag handle must start and end with '!': %r" % handle)
+            for ch in handle.substr(1, handle.size()-1):
+                if not (('0' <= ch and ch <= '9') or ('A' <= ch and ch <= 'Z') or ('a' <= ch and ch <= 'z')    \
+                        or ch in '-_'):
+                    SGYPaser.error("invalid character %c in the tag handle: %s"
+                            % [ch, handle])
+            return handle
+
+        static func prepare_tag_prefix(prefix):
+            if prefix.is_empty():
+                SGYPaser.error("tag prefix must not be empty")
+            var chunks = []
+            var start = 0
+            var end = 0
+            if prefix[0] == '!':
+                end = 1
+            while end < len(prefix):
+                var ch = prefix[end]
+                if ('0' <= ch and ch <= '9') or ('A' <= ch and ch <= 'Z') or ('a' <= ch and ch <= 'z') \
+                        or ch in '-;/?!:@&=+$,_.~*\'()[]':
+                    end += 1
+                else:
+                    if start < end:
+                        chunks.append(prefix.substr(start, end-start))
+                    start = end+1
+                    end = end+1
+                    var data = ch.encode('utf-8')
+                    for c in data:
+                        chunks.append('%%%02X' % ord(c))
+            if start < end:
+                chunks.append(prefix.substr(start, end-start))
+            return ''.join(chunks)
+
+        static func prepare_tag(tag):
+            if tag.is_empty():
+                SGYPaser.error("tag must not be empty")
+            if tag == '!':
+                return tag
+            var handle = null
+            var suffix = tag
+            var prefixes = tag_prefixes.keys()
+            prefixes.sort()
+            for prefix in prefixes:
+                if tag.begins_with(prefix)   \
+                        and (prefix == '!' or len(prefix) < len(tag)):
+                    handle = tag_prefixes[prefix]
+                    suffix = tag.substr(len(prefix))
+            var chunks = []
+            var start = 0
+            var end = 0
+            while end < len(suffix):
+                var ch = suffix[end]
+                if ('0' <= ch and ch <= '9') or ('A' <= ch and ch <= 'Z') or ('a' <= ch and ch <= 'z') \
+                        or ch in '-;/?:@&=+$,_.~*\'()[]'   \
+                        or (ch == '!' and handle != '!'):
+                    end += 1
+                else:
+                    if start < end:
+                        chunks.append(suffix.substr(start, end-start))
+                    start = end+1
+                    end = end+1
+                    var data = ch.encode('utf-8')
+                    for c in data:
+                        chunks.append('%%%02X' % c)
+            if start < end:
+                chunks.append(suffix.substr(start, end-start))
+            var suffix_text = ''.join(chunks)
+            if handle:
+                return '%s%s' % [handle, suffix_text]
+            else:
+                return '!<%s>' % suffix_text
+
+        static func prepare_anchor(anchor):
+            if not anchor:
+                SGYPaser.error("anchor must not be empty")
+            for ch in anchor:
+                if not (('0' <= ch and ch <= '9') or ('A' <= ch and ch <= 'Z') or ('a' <= ch and ch <= 'z')    \
+                        or ch in '-_'):
+                    SGYPaser.error("invalid character %c in the anchor: %s"
+                            % [ch, anchor])
+            return anchor
+
+        static func analyze_scalar(scalar :String) -> Dictionary:
+
+            # Empty scalar is a special case.
+            if scalar.is_empty():
+                return {
+                        scalar=scalar, 
+                        empty=true, 
+                        multiline=false,
+                        allow_flow_plain=false, 
+                        allow_block_plain=true,
+                        allow_single_quoted=true, 
+                        allow_double_quoted=true,
+                        allow_block=false
+                    }
+
+            # Indicators and special characters.
+            var block_indicators = false
+            var flow_indicators = false
+            var line_breaks = false
+            var special_characters = false
+
+            # Important whitespace combinations.
+            var leading_space = false
+            var leading_break = false
+            var trailing_space = false
+            var trailing_break = false
+            var break_space = false
+            var space_break = false
+
+            # Check document indicators.
+            if scalar.begins_with('---') or scalar.begins_with('...'):
+                block_indicators = true
+                flow_indicators = true
+
+            # First character or preceded by a whitespace.
+            var preceded_by_whitespace = true
+
+            # Last character or followed by a whitespace.
+            var followed_by_whitespace = (len(scalar) == 1 or
+                    scalar[1] in '\u0003 \t\r\n')
+
+            # The previous character is a space.
+            var previous_space = false
+
+            # The previous character is a break.
+            var previous_break = false
+
+            var index = 0
+            while index < len(scalar):
+                var ch = scalar[index]
+
+                # Check for indicators.
+                if index == 0:
+                    # Leading indicators are special characters.
+                    if ch in '#,[]{}&*!|>\'\"%@`':
+                        flow_indicators = true
+                        block_indicators = true
+                    if ch in '?:':
+                        flow_indicators = true
+                        if followed_by_whitespace:
+                            block_indicators = true
+                    if ch == '-' and followed_by_whitespace:
+                        flow_indicators = true
+                        block_indicators = true
+                else:
+                    # Some indicators cannot appear within a scalar as well.
+                    if ch in ',?[]{}':
+                        flow_indicators = true
+                    if ch == ':':
+                        flow_indicators = true
+                        if followed_by_whitespace:
+                            block_indicators = true
+                    if ch == '#' and preceded_by_whitespace:
+                        flow_indicators = true
+                        block_indicators = true
+
+                # Check for line breaks, special, and unicode characters.
+                if ch in '\n':
+                    line_breaks = true
+                # if not (ch == '\n' or '\x20' <= ch <= '\x7E'):
+                    # if (ch == '\x85' or '\xA0' <= ch <= '\uD7FF'
+                    #         or '\uE000' <= ch <= '\uFFFD'
+                    #         or '\U00010000' <= ch < '\U0010ffff') and ch != '\uFEFF':
+                if not (ch == '\n' or ('\u0020' <= ch and ch <= '\u007E')):
+                    if ((ord('\uE000') <= ord(ch) and ord(ch) <= ord('\uFFFD'))
+                            or (ord('\U010000') <= ord(ch) and ord(ch) < ord('\U10ffff'))) and ch != '\uFEFF':
+                        # unicode_characters = true
+                        if not allow_unicode:
+                            special_characters = true
+                    else:
+                        special_characters = true
+
+                # Detect important whitespace combinations.
+                if ch == ' ':
+                    if index == 0:
+                        leading_space = true
+                    if index == len(scalar)-1:
+                        trailing_space = true
+                    if previous_break:
+                        break_space = true
+                    previous_space = true
+                    previous_break = false
+                elif ch in '\n':
+                    if index == 0:
+                        leading_break = true
+                    if index == len(scalar)-1:
+                        trailing_break = true
+                    if previous_space:
+                        space_break = true
+                    previous_space = false
+                    previous_break = true
+                else:
+                    previous_space = false
+                    previous_break = false
+
+                # Prepare for the next character.
+                index += 1
+                preceded_by_whitespace = (ch in '\u0003 \t\r\n')
+                followed_by_whitespace = (index+1 >= len(scalar) or
+                        scalar[index+1] in '\u0003 \t\r\n')
+
+            # Let's decide what styles are allowed.
+            var allow_flow_plain = true
+            var allow_block_plain = true
+            var allow_single_quoted = true
+            var allow_double_quoted = true
+            var allow_block = true
+
+            # Leading and trailing whitespaces are bad for plain scalars.
+            if (leading_space or leading_break
+                    or trailing_space or trailing_break):
+                allow_flow_plain = false
+                allow_block_plain = false
+
+            # We do not permit trailing spaces for block scalars.
+            if trailing_space:
+                allow_block = false
+
+            # Spaces at the beginning of a new line are only acceptable for block
+            # scalars.
+            if break_space:
+                allow_flow_plain = false
+                allow_block_plain = false
+                allow_single_quoted = false
+
+            # Spaces followed by breaks, as well as special character are only
+            # allowed for double quoted scalars.
+            if space_break or special_characters:
+                allow_flow_plain    = false
+                allow_block_plain   = false
+                allow_single_quoted = false
+                allow_block = false
+
+            # Although the plain scalar writer supports breaks, we never emit
+            # multiline plain scalars.
+            if line_breaks:
+                allow_flow_plain = false
+                allow_block_plain = false
+
+            # Flow indicators are forbidden for flow plain scalars.
+            if flow_indicators:
+                allow_flow_plain = false
+
+            # Block indicators are forbidden for block plain scalars.
+            if block_indicators:
+                allow_block_plain = false
+
+            return {
+                    scalar=scalar,
+                    empty=false, 
+                    multiline=line_breaks,
+                    allow_flow_plain=allow_flow_plain,
+                    allow_block_plain=allow_block_plain,
+                    allow_single_quoted=allow_single_quoted,
+                    allow_double_quoted=allow_double_quoted,
+                    allow_block=allow_block
+                }
+
+        # Writers.
+
+        static func flush_stream():
+            if stream.has_method('flush'):
+                stream.flush()
+
+        static func write_stream_start():
+            # Write BOM if needed.
+            # if encoding and encoding.begins_with('utf-16'):
+            #     stream.write('\uFEFF'.encode(encoding))
+            #FIXME
+            pass
+
+        static func write_stream_end():
+            flush_stream()
+
+        static func write_indicator(indicator, need_whitespace,
+                p_whitespace=false, p_indention=false):
+            var data
+            if whitespace or not need_whitespace:
+                data = indicator
+            else:
+                data = ' '+indicator
+            whitespace = p_whitespace
+            indention = indention and p_indention
+            column += len(data)
+            open_ended = false
+            if encoding:
+                data = data.encode(encoding)
+            stream.write(data)
+
+        static func write_indent():
+            var data
+            var temp_indent = indent if indent != null else 0
+            if not indention or column > temp_indent   \
+                    or (column == temp_indent and not whitespace):
+                write_line_break()
+            if column < temp_indent:
+                whitespace = true
+                data = ' '*(temp_indent-column)
+                column = temp_indent
+                if encoding:
+                    data = data.encode(encoding)
+                stream.write(data)
+
+        static func write_line_break(data=null):
+            if data == null:
+                data = best_line_break
+            whitespace = true
+            indention = true
+            line += 1
+            column = 0
+            if encoding:
+                data = data.encode(encoding)
+            stream.write(data)
+
+        static func write_version_directive(version_text):
+            var data = '%%YAML %s' % version_text
+            if encoding:
+                data = data.encode(encoding)
+            stream.write(data)
+            write_line_break()
+
+        static func write_tag_directive(handle_text, prefix_text):
+            var data = '%%TAG %s %s' % [handle_text, prefix_text]
+            if encoding:
+                data = data.encode(encoding)
+            stream.write(data)
+            write_line_break()
+
+        # Scalar streams.
+
+        static func write_single_quoted(text, split=true):
+            write_indicator('\'', true)
+            var spaces = false
+            var breaks = false
+            var start = 0
+            var end = 0
+            while end <= len(text):
+                var ch = null
+                if end < len(text):
+                    ch = text[end]
+                if spaces:
+                    if ch == null or ch != ' ':
+                        if start+1 == end and column > best_width and split   \
+                                and start != 0 and end != len(text):
+                            write_indent()
+                        else:
+                            var data = text.substr(start, end-start)
+                            column += len(data)
+                            if encoding:
+                                data = data.encode(encoding)
+                            stream.write(data)
+                        start = end
+                elif breaks:
+                    if ch == null or ch not in '\n':
+                        if text[start] == '\n':
+                            write_line_break()
+                        for br in text.substr(start, end-start):
+                            if br == '\n':
+                                write_line_break()
+                            else:
+                                write_line_break(br)
+                        write_indent()
+                        start = end
+                else:
+                    if ch == null or ch in ' \n' or ch == '\'':
+                        if start < end:
+                            var data = text.substr(start, end-start)
+                            column += len(data)
+                            if encoding:
+                                data = data.encode(encoding)
+                            stream.write(data)
+                            start = end
+                if ch == '\'':
+                    var data = '\'\''
+                    column += 2
+                    if encoding:
+                        data = data.encode(encoding)
+                    stream.write(data)
+                    start = end + 1
+                if ch != null:
+                    spaces = (ch == ' ')
+                    breaks = (ch in '\n')
+                end += 1
+            write_indicator('\'', false)
+
+        const ESCAPE_REPLACEMENTS = {
+            '\u0003':       '0',
+            # '\x07':     'a',
+            # '\x08':     'b',
+            # '\x09':     't',
+            # '\x0A':     'n',
+            # '\x0B':     'v',
+            # '\x0C':     'f',
+            # '\x0D':     'r',
+            # '\x1B':     'e',
+            '\"':       '\"',
+            '\\':       '\\',
+            # '\x85':     'N',
+            # '\xA0':     '_',
+            '\u2028':   'L',
+            '\u2029':   'P',
+        }
+
+        static func write_double_quoted(text, split=true):
+            write_indicator('"', true)
+            var start = 0
+            var end = 0
+            while end <= len(text):
+                var ch = null
+                if end < len(text):
+                    ch = text[end]
+                # if ch == null or ch in '"\\\uFEFF' \
+                #         or not ('\x20' <= ch <= '\x7E'
+                #             or (allow_unicode
+                #                 and ('\xA0' <= ch <= '\uD7FF'
+                #                     or '\uE000' <= ch <= '\uFFFD'))):
+                if ch == null or ch in '"\\\uFEFF' \
+                        or not (allow_unicode and ('\uE000' <= ch <= '\uFFFD')):
+                    if start < end:
+                        var data = text.substr(start, end-start)
+                        column += len(data)
+                        if encoding:
+                            data = data.encode(encoding)
+                        stream.write(data)
+                        start = end
+                    if ch != null:
+                        var data
+                        if ch in ESCAPE_REPLACEMENTS:
+                            data = '\\'+ESCAPE_REPLACEMENTS[ch]
+                        # elif ch <= '\xFF':
+                        #     data = '\\x%02X' % ord(ch)
+                        elif ch <= '\uFFFF':
+                            data = '\\u%04X' % ord(ch)
+                        else:
+                            data = '\\U%08X' % ord(ch)
+                        column += len(data)
+                        if encoding:
+                            data = data.encode(encoding)
+                        stream.write(data)
+                        start = end+1
+                if (0 < end and end < len(text)-1) and (ch == ' ' or start >= end)    \
+                        and column+(end-start) > best_width and split:
+                    var data = text.substr(start, end-start)+'\\'
+                    if start < end:
+                        start = end
+                    column += len(data)
+                    if encoding:
+                        data = data.encode(encoding)
+                    stream.write(data)
+                    write_indent()
+                    whitespace = false
+                    indention = false
+                    if text[start] == ' ':
+                        data = '\\'
+                        column += len(data)
+                        if encoding:
+                            data = data.encode(encoding)
+                        stream.write(data)
+                end += 1
+            write_indicator('"', false)
+
+        static func determine_block_hints(text):
+            var hints = ''
+            if text:
+                if text[0] in ' \n':
+                    hints += str(best_indent)
+                if text[-1] not in '\n':
+                    hints += '-'
+                elif len(text) == 1 or text[-2] in '\n':
+                    hints += '+'
+            return hints
+
+        static func write_folded(text):
+            var hints = determine_block_hints(text)
+            write_indicator('>'+hints, true)
+            if not hints.is_empty() and hints[-1] == '+':
+                open_ended = true
+            write_line_break()
+            var leading_space = true
+            var spaces = false
+            var breaks = true
+            var start = 0
+            var end = 0
+            while end <= len(text):
+                var ch = null
+                if end < len(text):
+                    ch = text[end]
+                if breaks:
+                    if ch == null or ch not in '\n':
+                        if not leading_space and ch != null and ch != ' '   \
+                                and text[start] == '\n':
+                            write_line_break()
+                        leading_space = (ch == ' ')
+                        for br in text.substr(start, end-start):
+                            if br == '\n':
+                                write_line_break()
+                            else:
+                                write_line_break(br)
+                        if ch != null:
+                            write_indent()
+                        start = end
+                elif spaces:
+                    if ch != ' ':
+                        if start+1 == end and column > best_width:
+                            write_indent()
+                        else:
+                            var data = text.substr(start, end-start)
+                            column += len(data)
+                            if encoding:
+                                data = data.encode(encoding)
+                            stream.write(data)
+                        start = end
+                else:
+                    if ch == null or ch in ' \n':
+                        var data = text.substr(start, end-start)
+                        column += len(data)
+                        if encoding:
+                            data = data.encode(encoding)
+                        stream.write(data)
+                        if ch == null:
+                            write_line_break()
+                        start = end
+                if ch != null:
+                    breaks = (ch in '\n')
+                    spaces = (ch == ' ')
+                end += 1
+
+        static func write_literal(text):
+            var hints = determine_block_hints(text)
+            write_indicator('|'+hints, true)
+            if not hints.is_empty() and hints[-1] == '+':
+                open_ended = true
+            write_line_break()
+            var breaks = true
+            var start = 0
+            var end = 0
+            while end <= len(text):
+                var ch = null
+                if end < len(text):
+                    ch = text[end]
+                if breaks:
+                    if ch == null or ch not in '\n':
+                        for br in text.substr(start, end-start):
+                            if br == '\n':
+                                write_line_break()
+                            else:
+                                write_line_break(br)
+                        if ch != null:
+                            write_indent()
+                        start = end
+                else:
+                    if ch == null or ch in '\n':
+                        var data = text.substr(start, end-start)
+                        if encoding:
+                            data = data.encode(encoding)
+                        stream.write(data)
+                        if ch == null:
+                            write_line_break()
+                        start = end
+                if ch != null:
+                    breaks = (ch in '\n')
+                end += 1
+
+        static func write_plain(text, split=true):
+            if root_context:
+                open_ended = true
+            if not text:
+                return
+            if not whitespace:
+                var data = ' '
+                column += len(data)
+                if encoding:
+                    data = data.encode(encoding)
+                stream.write(data)
+            whitespace = false
+            indention = false
+            var spaces = false
+            var breaks = false
+            var start = 0
+            var end = 0
+            while end <= len(text):
+                var ch = null
+                if end < len(text):
+                    ch = text[end]
+                if spaces:
+                    if ch != ' ':
+                        if start+1 == end and column > best_width and split:
+                            write_indent()
+                            whitespace = false
+                            indention = false
+                        else:
+                            var data = text.substr(start, end-start)
+                            column += len(data)
+                            if encoding:
+                                data = data.encode(encoding)
+                            stream.write(data)
+                        start = end
+                elif breaks:
+                    if ch not in '\n':
+                        if text[start] == '\n':
+                            write_line_break()
+                        for br in text.substr(start, end-start):
+                            if br == '\n':
+                                write_line_break()
+                            else:
+                                write_line_break(br)
+                        write_indent()
+                        whitespace = false
+                        indention = false
+                        start = end
+                else:
+                    if ch == null or ch in ' \n':
+                        var data = text.substr(start, end-start)
+                        column += len(data)
+                        if encoding:
+                            data = data.encode(encoding)
+                        stream.write(data)
+                        start = end
+                if ch != null:
+                    spaces = (ch == ' ')
+                    breaks = (ch in '\n')
+                end += 1
+
+    class MockStream:
+        var data_cache = ""
+        func write(data):
+            data_cache += data
+        func print_data():
+            print(data_cache)
