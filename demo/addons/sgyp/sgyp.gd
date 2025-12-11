@@ -45,7 +45,7 @@ class SGYPaser:
         # for e in events:
         #     print(e.type)
 
-        return null
+        return result
 
     func dump(p_var:Variant):
         Emitter.stream = MockStream.new()
@@ -1618,9 +1618,8 @@ class SGYPaser:
                     value = args[3]
                     style = args[4]
 
-            if args.size() > 2 and (args[-2]!=null and args[-1]!=null) and\
-                args[-2].get_class() == "Mark" and \
-                args[-1].get_class() == "Mark":
+            if args.size() > 2 and \
+                (is_instance_of(args[-2], Mark) and is_instance_of(args[-1], Mark)):
 
                 start_mark = args[-2]
                 end_mark = args[-1]
@@ -2211,9 +2210,8 @@ class SGYPaser:
                     value = args[1]
                     style = args[2]
 
-            if args.size() > 2 and (args[-2]!=null and args[-1]!=null) and\
-                args[-2].get_class() == "Mark" and \
-                args[-1].get_class() == "Mark":
+            if args.size() > 2 and \
+                (is_instance_of(args[-2], Mark) and is_instance_of(args[-1], Mark)):
 
                 start_mark = args[-2]
                 end_mark = args[-1]
@@ -3148,9 +3146,9 @@ class SGYPaser:
                 represented_objects[alias_key] = node
             return node
 
-        static func represent_sequence(tag, sequence, flow_style=null):
+        static func represent_sequence(tag, sequence, p_flow_style=null):
             var value = []
-            var node = YAMLNode.new("SEQUENCE", tag, value, flow_style)
+            var node = YAMLNode.new("SEQUENCE", tag, value, false)
             if alias_key != null:
                 represented_objects[alias_key] = node
             var best_style = true
@@ -3159,16 +3157,19 @@ class SGYPaser:
                 if not (node_item.type == "SCALAR" and node_item.style == null):
                     best_style = false
                 value.append(node_item)
-            if flow_style == null:
+            if p_flow_style == null:
                 if default_flow_style != null:
-                    node.flow_style = default_flow_style
+                    node.is_flow_style = default_flow_style
                 else:
-                    node.flow_style = best_style
+                    node.is_flow_style = best_style
+            else:
+                node.is_flow_style = p_flow_style
+                
             return node
 
-        static func represent_mapping(tag, mapping, flow_style=null):
+        static func represent_mapping(tag, mapping, p_flow_style=null):
             var value = []
-            var node = YAMLNode.new("MAPPING", tag, value, flow_style)
+            var node = YAMLNode.new("MAPPING", tag, value, false)
             if alias_key != null:
                 represented_objects[alias_key] = node
             var best_style = true
@@ -3204,11 +3205,13 @@ class SGYPaser:
                     best_style = false
                 value.append([node_key, node_value])
 
-            if flow_style == null:
+            if p_flow_style == null:
                 if default_flow_style != null:
-                    node.flow_style = default_flow_style
+                    node.is_flow_style = default_flow_style
                 else:
-                    node.flow_style = best_style
+                    node.is_flow_style = best_style
+            else:
+                node.is_flow_style = p_flow_style
 
             return node
 
@@ -3348,7 +3351,7 @@ class SGYPaser:
                     var implicit = (node.tag
                                 == Resolver.resolve("SEQUENCE", node.value, true))
                     Emitter.emit(Event.new("SEQUENCE_START", alias, node.tag, implicit,
-                        node.flow_style))
+                        node.is_flow_style))
                     index = 0
                     for item in node.value:
                         serialize_node(item, node, index)
@@ -3358,7 +3361,7 @@ class SGYPaser:
                     var implicit = (node.tag
                                 == Resolver.resolve("MAPPING", node.value, true))
                     Emitter.emit(Event.new("MAPPING_START", alias, node.tag, implicit,
-                        node.flow_style))
+                        node.is_flow_style))
                     for temp_array in node.value:
                         var key = temp_array[0]
                         var value = temp_array[0][1]
@@ -3591,13 +3594,13 @@ class SGYPaser:
                 if event.type == "SCALAR":
                     expect_scalar()
                 elif event.type == "SEQUENCE_START":
-                    if flow_level or canonical or event.flow_style   \
+                    if flow_level or canonical or event.is_flow_style   \
                             or check_empty_sequence():
                         expect_flow_sequence()
                     else:
                         expect_block_sequence()
                 elif event.type == "MAPPING_START":
-                    if flow_level or canonical or event.flow_style   \
+                    if flow_level or canonical or event.is_flow_style   \
                             or check_empty_mapping():
                         expect_flow_mapping()
                     else:
