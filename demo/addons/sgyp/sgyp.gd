@@ -3185,20 +3185,20 @@ class SGYPaser:
                 mapping.sort()
 
             # for temp_array in mapping:
-            #     item_key = temp_array[0]
-            #     item_value = temp_array[1]
-            #     node_key = represent_data(item_key)
-            #     node_value = represent_data(item_value)
-            #     if not (isinstance(node_key, ScalarNode) and not node_key.style):
+            #     var item_key = temp_array[0]
+            #     var item_value = temp_array[1]
+            #     var node_key = represent_data(item_key)
+            #     var node_value = represent_data(item_value)
+            #     if not (node_key.type   == "SCALAR"  and not node_key.style):
             #         best_style = false
-            #     if not (isinstance(node_value, ScalarNode) and not node_value.style):
+            #     if not (node_value.type == "SCALAR"  and not node_value.style):
             #         best_style = false
             #     value.append([node_key, node_value])
             
             for key in mapping:
-                value = mapping[key]
+                var mapping_value = mapping[key]
                 var node_key = represent_data(key)
-                var node_value = represent_data(value)
+                var node_value = represent_data(mapping_value)
                 if not (node_key.type   == "SCALAR"  and not node_key.style):
                     best_style = false
                 if not (node_value.type == "SCALAR"  and not node_value.style):
@@ -3254,7 +3254,6 @@ class SGYPaser:
             return represent_scalar('tag:yaml.org,2002:float', value)
 
         static func represent_array(data):
-            print("WWWWWWWWWWWWW")
             return represent_sequence('tag:yaml.org,2002:seq', data)
 
         static func represent_dict(data):
@@ -3326,7 +3325,7 @@ class SGYPaser:
                 elif node.type == "MAPPING":
                     for temp_array in node.value:
                         var key = temp_array[0]
-                        var value = temp_array[0][1]
+                        var value = temp_array[1]
                         anchor_node(key)
                         anchor_node(value)
 
@@ -3364,7 +3363,7 @@ class SGYPaser:
                         node.is_flow_style))
                     for temp_array in node.value:
                         var key = temp_array[0]
-                        var value = temp_array[0][1]
+                        var value = temp_array[1]
                         serialize_node(key, node, null)
                         serialize_node(value, node, key)
                     Emitter.emit(Event.new("MAPPING_END"))
@@ -4206,7 +4205,7 @@ class SGYPaser:
                 write_line_break()
             if column < temp_indent:
                 whitespace = true
-                data = ' '*(temp_indent-column)
+                data = ' '.repeat(temp_indent-column)
                 column = temp_indent
                 if encoding:
                     data = data.encode(encoding)
