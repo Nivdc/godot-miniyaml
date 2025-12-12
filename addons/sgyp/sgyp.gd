@@ -22,7 +22,6 @@ static func parse(yaml_data) -> Variant:
         return null
 
 static func dump(p_var:Variant):
-    print(p_var)
     return SGYPaser.new().dump(p_var)
 
 class SGYPaser:
@@ -1292,9 +1291,21 @@ class SGYPaser:
 
         const ESCAPE_REPLACEMENTS = {
             '0':    '\u0003',
+            'a':    '\u0007',
+            'b':    '\u0008',
+            't':    '\u0009',
+            '\t':   '\u0009',
+            'n':    '\u000A',
+            'v':    '\u000B',
+            'f':    '\u000C',
+            'r':    '\u000D',
+            'e':    '\u001B',
+            ' ':    '\u0020',
             '\"':   '\"',
             '\\':   '\\',
             '/':    '/',
+            'N':    '\u0085',
+            '_':    '\u00A0',
             'L':    '\u2028',
             'P':    '\u2029',
         }
@@ -4283,19 +4294,19 @@ class SGYPaser:
             write_indicator('\'', false)
 
         const ESCAPE_REPLACEMENTS = {
-            '\u0003':       '0',
-            # '\x07':     'a',
-            # '\x08':     'b',
-            # '\x09':     't',
-            # '\x0A':     'n',
-            # '\x0B':     'v',
-            # '\x0C':     'f',
-            # '\x0D':     'r',
-            # '\x1B':     'e',
+            '\u0003':   '0',
+            '\u0007':   'a',
+            '\u0008':   'b',
+            '\u0009':   't',
+            '\u000A':   'n',
+            '\u000B':   'v',
+            '\u000C':   'f',
+            '\u000D':   'r',
+            '\u001B':   'e',
             '\"':       '\"',
             '\\':       '\\',
-            # '\x85':     'N',
-            # '\xA0':     '_',
+            '\u0085':   'N',
+            '\u00A0':   '_',
             '\u2028':   'L',
             '\u2029':   'P',
         }
@@ -4574,7 +4585,6 @@ class SGYPaser:
             encoding = p_encoding if encoding in ['utf8', 'utf16', 'utf32'] else 'utf8'
 
         func write(data):
-            # assert(' ' not in data)
             if file != null:
                 file.store_buffer(data['to_%s_buffer' % encoding].call())
             else:
