@@ -23,7 +23,7 @@ static func parse(yaml_data) -> Variant:
 
 static func dump(p_var:Variant):
     print(p_var)
-    SGYPaser.new().dump(p_var)
+    return SGYPaser.new().dump(p_var)
 
 class SGYPaser:
     func _init():
@@ -45,7 +45,7 @@ class SGYPaser:
         Serializer.open()
         Representer.represent(p_var)
         Serializer.close()
-        Emitter.stream.print_data()
+        return Emitter.stream.cache
 
     static func soft_assert(condition: bool, message: String = "Soft assertion failed"):
         if not condition: push_error("SGYP Error: " + message)
@@ -976,7 +976,7 @@ class SGYPaser:
         func scan_yaml_directive_number(start_mark):
             # See the specification for details.
             var ch = peek()
-            if not ('0' <= ch <= '9'):
+            if not ('0' <= ch and ch <= '9'):
                 SGYPaser.error("while scanning YAML directive %s expected a digit, but found %c %s" 
                 % [start_mark, peek(), get_mark()])
             var length = 0
@@ -1142,7 +1142,7 @@ class SGYPaser:
             # Scan the inner part of the block scalar.
             var leading_non_space
             while column_index == indent and peek() != '\u0003':
-                chunks.extend(breaks)
+                chunks.append_array(breaks)
                 leading_non_space = peek() not in ' \t'
                 var length = 0
                 while peek(length) not in '\u0003\r\n':
@@ -1184,7 +1184,7 @@ class SGYPaser:
             if chomping != false: # chomping == null or chomping == true
                 chunks.append(line_break)
             if chomping == true:
-                chunks.extend(breaks)
+                chunks.append_array(breaks)
 
             # We are done.
             # return ScalarToken(''.join(chunks), false, start_mark, end_mark,
@@ -1281,10 +1281,10 @@ class SGYPaser:
             var start_mark = get_mark()
             var quote = peek()
             forward()
-            chunks.extend(scan_flow_scalar_non_spaces(double, start_mark))
+            chunks.append_array(scan_flow_scalar_non_spaces(double, start_mark))
             while peek() != quote:
-                chunks.extend(scan_flow_scalar_spaces(double, start_mark))
-                chunks.extend(scan_flow_scalar_non_spaces(double, start_mark))
+                chunks.append_array(scan_flow_scalar_spaces(double, start_mark))
+                chunks.append_array(scan_flow_scalar_non_spaces(double, start_mark))
             forward()
             var end_mark = get_mark()
             return Token.new("SCALAR", ''.join(chunks), false, style, start_mark, end_mark)
@@ -1340,7 +1340,7 @@ class SGYPaser:
                         forward(length)
                     elif ch in '\r\n':
                         scan_line_break()
-                        chunks.extend(scan_flow_scalar_breaks(double, start_mark))
+                        chunks.append_array(scan_flow_scalar_breaks(double, start_mark))
                     else:
                         SGYPaser.error("while scanning a double-quoted scalar %s found unknown escape character %c %s" 
                         % [start_mark, ch, get_mark()])
@@ -1366,7 +1366,7 @@ class SGYPaser:
                     chunks.append(line_break)
                 elif not breaks:
                     chunks.append(' ')
-                chunks.extend(breaks)
+                chunks.append_array(breaks)
             else:
                 chunks.append(whitespaces)
             return chunks
@@ -1426,7 +1426,7 @@ class SGYPaser:
                 forward(length)
                 end_mark = get_mark()
                 spaces = scan_plain_spaces(indent, start_mark)
-                if spaces.is_empty() or peek() == '#' \
+                if spaces == null or spaces.is_empty() or peek() == '#' \
                         or (flow_level == 0 and column_index < indent):
                     break
             return Token.new("SCALAR", ''.join(chunks), true, null, start_mark, end_mark)
@@ -2797,7 +2797,7 @@ class SGYPaser:
                     node.value.erase(index)
                     if value_node.type == "MAPPING":
                         flatten_mapping(value_node)
-                        merge.extend(value_node.value)
+                        merge.append_array(value_node.value)
                     elif value_node.type == "SEQUENCE":
                         var submerge = []
                         for subnode in value_node.value:
@@ -2810,7 +2810,7 @@ class SGYPaser:
                             submerge.append(subnode.value)
                         submerge.reverse()
                         for value in submerge:
-                            merge.extend(value)
+                            merge.append_array(value)
                     else:
                         SGYPaser.error("while constructing a mapping", node.start_mark,
                                 "expected a mapping or list of mappings for merging, but found %s"
@@ -3011,7 +3011,7 @@ class SGYPaser:
         # func construct_yaml_seq(node):
         #     data = []
         #     yield data
-        #     data.extend(construct_sequence(node))
+        #     data.append_array(construct_sequence(node))
 
         # func construct_yaml_map(node):
         #     data = {}
@@ -3420,7 +3420,7 @@ class SGYPaser:
 
         # Formatting details.
         static var canonical
-        static var allow_unicode
+        static var allow_unicode :bool
         static var best_indent = 2
         static var best_width = 80
         static var best_line_break = '\n'
@@ -3437,12 +3437,12 @@ class SGYPaser:
         static var analysis = null
         static var style = null
 
-        static func set_up(p_canonical=null, p_allow_unicode=null, indent=2, width=80, line_break='\n'):
+        static func set_up(p_canonical=null, p_allow_unicode=true, p_indent=2, width=80, line_break='\n'):
             canonical = p_canonical
             allow_unicode = p_allow_unicode
 
-            if 1 < indent and indent < 10:
-                best_indent = indent
+            if 1 < p_indent and p_indent < 10:
+                best_indent = p_indent
             if width > best_indent*2:
                 best_width = width
             if line_break in ['\r', '\n', '\r\n']:
@@ -3982,7 +3982,6 @@ class SGYPaser:
             return anchor
 
         static func analyze_scalar(scalar :String) -> Dictionary:
-
             # Empty scalar is a special case.
             if scalar.is_empty():
                 return {
@@ -4060,13 +4059,10 @@ class SGYPaser:
                 # Check for line breaks, special, and unicode characters.
                 if ch in '\n':
                     line_breaks = true
-                # if not (ch == '\n' or '\x20' <= ch <= '\x7E'):
-                    # if (ch == '\x85' or '\xA0' <= ch <= '\uD7FF'
-                    #         or '\uE000' <= ch <= '\uFFFD'
-                    #         or '\U00010000' <= ch < '\U0010ffff') and ch != '\uFEFF':
-                if not (ch == '\n' or ('\u0020' <= ch and ch <= '\u007E')):
-                    if ((ord('\uE000') <= ord(ch) and ord(ch) <= ord('\uFFFD'))
-                            or (ord('\U010000') <= ord(ch) and ord(ch) < ord('\U10ffff'))) and ch != '\uFEFF':
+                if not (ch == '\n' or '\u0020' <= ch and ch <= '\u007E'):
+                    if (ch == '\u0085' or ('\u00A0' <= ch and ch <= '\uD7FF')
+                            or ('\uE000' <= ch and ch <= '\uFFFD')
+                            or ('\U010000' <= ch and ch < '\U10ffff')) and ch != '\uFEFF':
                         # unicode_characters = true
                         if not allow_unicode:
                             special_characters = true
@@ -4304,7 +4300,12 @@ class SGYPaser:
             '\u2029':   'P',
         }
 
-        static func write_double_quoted(text, split=true):
+        static func write_double_quoted(text:String, split:=true):
+            # if root_context:
+            #     if requested_indent != null:
+            #         write_line_break()
+            #         if requested_indent != 0:
+            #             write_indent()
             write_indicator('"', true)
             var start = 0
             var end = 0
@@ -4312,13 +4313,21 @@ class SGYPaser:
                 var ch = null
                 if end < len(text):
                     ch = text[end]
-                # if ch == null or ch in '"\\\uFEFF' \
-                #         or not ('\x20' <= ch <= '\x7E'
-                #             or (allow_unicode
-                #                 and ('\xA0' <= ch <= '\uD7FF'
-                #                     or '\uE000' <= ch <= '\uFFFD'))):
-                if ch == null or ch in '"\\\uFEFF' \
-                        or not (allow_unicode and ('\uE000' <= ch <= '\uFFFD')):
+                if (
+                    ch == null
+                    or ch in '"\\\u0085\u2028\u2029\uFEFF'
+                    or not (
+                        ('\u0020' <= ch and ch <= '\u007E')
+                        or (
+                            allow_unicode
+                            and (
+                                ('\u00A0' <= ch and ch <= '\uD7FF')
+                                or ('\uE000' <= ch and ch <= '\uFFFD')
+                                or ('\U00010000' <= ch and ch <= '\U0010FFFF')
+                            )
+                        )
+                    )
+                ):
                     if start < end:
                         var data = text.substr(start, end-start)
                         column += len(data)
@@ -4329,9 +4338,9 @@ class SGYPaser:
                     if ch != null:
                         var data
                         if ch in ESCAPE_REPLACEMENTS:
-                            data = '\\'+ESCAPE_REPLACEMENTS[ch]
-                        # elif ch <= '\xFF':
-                        #     data = '\\x%02X' % ord(ch)
+                            data = '\\' + ESCAPE_REPLACEMENTS[ch]
+                        elif ch <= '\u00FF':
+                            data = '\\u00%02X' % ord(ch)
                         elif ch <= '\uFFFF':
                             data = '\\u%04X' % ord(ch)
                         else:
@@ -4340,11 +4349,37 @@ class SGYPaser:
                         if encoding:
                             data = data.encode(encoding)
                         stream.write(data)
-                        start = end+1
-                if (0 < end and end < len(text)-1) and (ch == ' ' or start >= end)    \
-                        and column+(end-start) > best_width and split:
-                    var data = text.substr(start, end-start)+'\\'
-                    if start < end:
+                        start = end + 1
+                if (
+                    (0 < end and end < len(text) - 1)
+                    and (ch == ' ' or start >= end)
+                    and column + (end - start) > best_width
+                    and split
+                ):
+                    # SO https://stackoverflow.com/a/75634614/1307905
+                    # data = text[start:end] + u'\\'  # <<< replaced with following lines
+                    var need_backslash := true
+                    if len(text) > end:
+                        var space_pos = text.find(' ', end)
+                        if text.substr(end, space_pos-end).find('\n') != -1:
+                            space_pos = text.find('\n', end)
+                        # nprint('backslash?', space_pos, repr(text[:space_pos]), repr(text[space_pos:]), (text[space_pos] == '\n' and text[space_pos+1] == ' '))  # NOQA
+                        if (text[space_pos] == '\n' and text[space_pos + 1] != ' '):
+                            pass
+                        elif (
+                            '"' not in text.substr(end, space_pos-end)
+                            and "'" not in text.substr(end, space_pos-end)
+                            # and text[space_pos + 1] != ' '
+                            and text[space_pos + 1] not in ' \n'
+                            and text.substr(end-1, 2) != '  '
+                            and start != end
+                        ):
+                            need_backslash = false
+                    var data
+                    if start >= end:
+                        data = '' + ('\\' if need_backslash else '')
+                    elif start < end:
+                        data = text.substr(start, end-start) + ('\\' if need_backslash else '')
                         start = end
                     column += len(data)
                     if encoding:
@@ -4354,7 +4389,11 @@ class SGYPaser:
                     whitespace = false
                     indention = false
                     if text[start] == ' ':
-                        data = '\\'
+                        if not need_backslash:
+                            # remove leading space it will load from the newline
+                            start += 1
+                        # data = u'\\'    # <<< replaced with following line
+                        data = '\\' if need_backslash else ''
                         column += len(data)
                         if encoding:
                             data = data.encode(encoding)
@@ -4535,6 +4574,7 @@ class SGYPaser:
             encoding = p_encoding if encoding in ['utf8', 'utf16', 'utf32'] else 'utf8'
 
         func write(data):
+            # assert(' ' not in data)
             if file != null:
                 file.store_buffer(data['to_%s_buffer' % encoding].call())
             else:
