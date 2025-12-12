@@ -38,17 +38,10 @@ class SGYPaser:
         var tokens = Scanner.new(yaml_string).scan()
         var result = Constructor.new(Composer.new(Parser.new(tokens))).get_single_data()
 
-        # print(result)
-        # for t in tokens:
-        #     print(t.type)
-
-        # for e in events:
-        #     print(e.type)
-
         return result
 
     func dump(p_var:Variant):
-        Emitter.stream = MockStream.new()
+        Emitter.stream = StreamWrapper.new()
         Serializer.open()
         Representer.represent(p_var)
         Serializer.close()
@@ -4531,9 +4524,25 @@ class SGYPaser:
                     breaks = (ch in '\n')
                 end += 1
 
-    class MockStream:
-        var data_cache = ""
+    class StreamWrapper:
+        var file
+        var encoding :String
+        var cache :String
+
+        func _init(p_encoding:='utf8', p_file=null):
+            if p_file is FileAccess and p_file.is_open():
+                file = p_file
+            encoding = p_encoding if encoding in ['utf8', 'utf16', 'utf32'] else 'utf8'
+
         func write(data):
-            data_cache += data
+            if file != null:
+                file.store_buffer(data['to_%s_buffer' % encoding].call())
+            else:
+                cache += data
+
+        func flush():
+            if file is FileAccess and file.is_open():
+                file.flush()
+
         func print_data():
-            print(data_cache)
+            print(cache)

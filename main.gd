@@ -12,14 +12,21 @@ func _ready():
 
     # print("\u0000" == "\u0000")
     # exec_texts()
-    var yaml_string = """
-- a
-- b
-- c
-"""
+#     var yaml_string = """
 
-    print(yaml_string.split())
-    parser.parse(yaml_string)
+# per_capita_consumption_table:
+#     1kg_wheat: 0.05 # 这个数字可以这样理解：每100个人里会有5个人每天消费1kg小麦，类似这样的 重量（或数量）_物品名 的组合会在载入数据时转换为实际数量
+
+# """
+    var yaml_string = """
+
+per_capita_consumption_table:
+    1kg_wheat: 0.05 # 这个数字可以这样理解：每100个人里会有5个人每天消费1kg小麦，类似这样的 重量（或数量）_物品名 的组合会在载入数据时转换为实际数量
+
+"""
+    print(yaml_string.to_utf32_buffer())
+    # parser.parse(yaml_string)
+    # parser.dump(parser.parse(yaml_string))
     
 
 func reload_test_files():
@@ -87,7 +94,7 @@ class Test:
         var result= regex.search(p_file_path)
 
         assert(result != null)
-        id         = result.get_string("id")
+        id = result.get_string("id")
         assert(FileAccess.file_exists(p_file_path + "/==="))
         name = FileAccess.open(p_file_path + "/===", FileAccess.READ).get_as_text()
 
