@@ -35,14 +35,11 @@ class SGYPaser:
     func load(yaml_bytes:PackedByteArray) -> Variant:
         var yaml_string = match_bom_return_string(yaml_bytes)
         var result = Constructor.new(Composer.new(Parser.new(Scanner.new(yaml_string)))).get_single_data()
-
         return result
 
     func dump(p_var:Variant):
         Emitter.stream = StreamWrapper.new()
-        Serializer.open()
         Representer.represent(p_var)
-        Serializer.close()
         return Emitter.stream.cache
 
     static func soft_assert(condition: bool, message: String = "Soft assertion failed"):
@@ -333,15 +330,15 @@ class SGYPaser:
                 tokens_taken += 1
             return result
 
-        static func convert_line_breaks_to_only_line_break(text :String, only_line_break :String) -> String:
-            # The key here is that we have to treat line_breaks as the same symbol
-            # So first, We choose a single character line_break as the only_line_break( '\n' )
-            # Then convert all line_breaks that are not only_line_break to only_line_break
-            assert(line_breaks.has(only_line_break), "only_line_break should be one of line_breaks.")
-            for line_break in line_breaks:
-                if line_break != only_line_break:
-                    text = only_line_break.join(text.split(line_break))
-            return text
+        # static func convert_line_breaks_to_only_line_break(text :String, only_line_break :String) -> String:
+        #     # The key here is that we have to treat line_breaks as the same symbol
+        #     # So first, We choose a single character line_break as the only_line_break( '\n' )
+        #     # Then convert all line_breaks that are not only_line_break to only_line_break
+        #     assert(line_breaks.has(only_line_break), "only_line_break should be one of line_breaks.")
+        #     for line_break in line_breaks:
+        #         if line_break != only_line_break:
+        #             text = only_line_break.join(text.split(line_break))
+        #     return text
 
         func fetch_more_tokens():
             # Eat whitespaces and comments until we reach the next token.
@@ -3282,7 +3279,6 @@ class SGYPaser:
         static var serialized_nodes = {}
         static var anchors          = {}
         static var last_anchor_id   = 0
-        static var closed           = null
 
         static func set_up(encoding=null,
                 explicit_start=false, explicit_end=false, version=null, tags=null):
@@ -3292,35 +3288,17 @@ class SGYPaser:
             use_version        = version
             use_tags           = tags
 
-        static func open():
-            if closed == null:
-                Emitter.emit(Event.new("STREAM_START"))
-                closed = false
-            elif closed:
-                SGYPaser.error("serializer is closed")
-            else:
-                SGYPaser.error("serializer is already opened")
-
-        static func close():
-            if closed == null:
-                SGYPaser.error("serializer is not opened")
-            elif not closed:
-                Emitter.emit(Event.new("STREAM_END"))
-                closed = true
-
         static func serialize(node):
-            if closed == null:
-                SGYPaser.error("serializer is not opened")
-            elif closed:
-                SGYPaser.error("serializer is closed")
+            Emitter.emit(Event.new("STREAM_START"))
             Emitter.emit(Event.new("DOCUMENT_START", use_explicit_start,
                 use_version, use_tags))
             anchor_node(node)
             serialize_node(node, null, null)
             Emitter.emit(Event.new("DOCUMENT_END", use_explicit_end))
-            serialized_nodes = {}
-            anchors = {}
-            last_anchor_id = 0
+            Emitter.emit(Event.new("STREAM_END"))
+            serialized_nodes    = {}
+            anchors             = {}
+            last_anchor_id      = 0
 
         static func anchor_node(node):
             if node in anchors:
@@ -3463,6 +3441,8 @@ class SGYPaser:
                 best_width = width
             if line_break in ['\r', '\n', '\r\n']:
                 best_line_break = line_break
+
+            state = expect_stream_start
 
         static func emit(new_event:Event):
             print(new_event.type)
