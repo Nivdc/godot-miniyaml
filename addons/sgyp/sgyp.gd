@@ -34,8 +34,7 @@ class SGYPaser:
 
     func load(yaml_bytes:PackedByteArray) -> Variant:
         var yaml_string = match_bom_return_string(yaml_bytes)
-        var tokens = Scanner.new(yaml_string).scan()
-        var result = Constructor.new(Composer.new(Parser.new(tokens))).get_single_data()
+        var result = Constructor.new(Composer.new(Parser.new(Scanner.new(yaml_string)))).get_single_data()
 
         return result
 
@@ -242,7 +241,7 @@ class SGYPaser:
         var tokens = []
 
         # # Number of tokens that were emitted through the `get_token` method.
-        # var tokens_taken = 0
+        var tokens_taken = 0
 
         # The current indentation level.
         var indent = -1
@@ -289,25 +288,50 @@ class SGYPaser:
         # 5.5. White Space Characters
         static var white_space = [" ", "\t"]
         
-        # 6.2. Separation Spaces
-        static var separate_in_line = white_space # [66] s-separate-in-line
+        # # 6.2. Separation Spaces
+        # static var separate_in_line = white_space # [66] s-separate-in-line
 
-        # 6.6. Comments
-        static var non_content = line_breaks
-        static var comment_ends = non_content # [76] b-comment
+        # # 6.6. Comments
+        # static var non_content = line_breaks
+        # static var comment_ends = non_content # [76] b-comment
 
 
         func _init(p_yaml_string:String) -> void:
-            fetch_stream_start()
             yaml_string = p_yaml_string
-
-        func scan():
-            yaml_string = convert_line_breaks_to_only_line_break(yaml_string, '\n')
             yaml_string += "\u0003" # Adding an EOF makes the code simpler.
+            fetch_stream_start()
 
+        # func scan():
+        #     yaml_string = convert_line_breaks_to_only_line_break(yaml_string, '\n')
+            # yaml_string += "\u0003" # Adding an EOF makes the code simpler.
+
+        #     while need_more_tokens:
+        #         fetch_more_tokens()
+        #     return tokens
+
+        func check_token(...token_types):
             while need_more_tokens:
                 fetch_more_tokens()
-            return tokens
+            var current_token = peek_token()
+            if not tokens.is_empty() and current_token != null:
+                if current_token.type in token_types:
+                    return true
+            return false
+
+        func peek_token():
+            while need_more_tokens:
+                fetch_more_tokens()
+            # Return null if no more tokens.
+            return tokens[tokens_taken] if tokens_taken < tokens.size() else null
+
+        func get_token():
+            while need_more_tokens:
+                fetch_more_tokens()
+            var result = null
+            if tokens_taken < tokens.size():
+                result = tokens[tokens_taken]
+                tokens_taken += 1
+            return result
 
         static func convert_line_breaks_to_only_line_break(text :String, only_line_break :String) -> String:
             # The key here is that we have to treat line_breaks as the same symbol
@@ -1641,11 +1665,10 @@ class SGYPaser:
         var marks = []
         var state = parse_stream_start # Callable or null
 
-        var tokens = []
-        var tokens_taken = 0
+        var scanner :Scanner
 
-        func _init(p_tokens):
-            tokens = p_tokens
+        func _init(p_scanner):
+            scanner = p_scanner
  
         func check_event(...event_types):
             # Check the type of the next event.
@@ -1674,24 +1697,6 @@ class SGYPaser:
             current_event = null
             return value
 
-        func get_token():
-            var result = null
-            if tokens_taken < tokens.size():
-                result = tokens[tokens_taken]
-                tokens_taken += 1
-            return result
-
-        func check_token(...token_types):
-            var current_token = peek_token()
-            if not tokens.is_empty() and current_token != null:
-                if current_token.type in token_types:
-                    return true
-            return false
-
-        func peek_token():
-            # Return null if no more tokens.
-            return tokens[tokens_taken] if tokens_taken < tokens.size() else null
-
         func parse():
             var events = []
             while state != null:
@@ -1705,7 +1710,7 @@ class SGYPaser:
         func parse_stream_start():
 
             # Parse the stream start.
-            var token = get_token()
+            var token = scanner.get_token()
             var event = Event.new("STREAM_START", token.start_mark, token.end_mark)
 
             # Prepare the next state.
@@ -1716,9 +1721,9 @@ class SGYPaser:
         func parse_implicit_document_start():
 
             # Parse an implicit document.
-            if not check_token("DIRECTIVE", "DOCUMENT_START", "STREAM_END"):
+            if not scanner.check_token("DIRECTIVE", "DOCUMENT_START", "STREAM_END"):
                 var tag_handles = DEFAULT_TAGS
-                var token = peek_token()
+                var token = scanner.peek_token()
                 var is_explicit = false
                 var event = Event.new("DOCUMENT_START", is_explicit, token.start_mark, token.end_mark)
 
@@ -1734,21 +1739,21 @@ class SGYPaser:
         func parse_document_start():
 
             # Parse any extra document end indicators.
-            while check_token("DOCUMENT_END"):
-                get_token()
+            while scanner.check_token("DOCUMENT_END"):
+                scanner.get_token()
 
             # Parse an explicit document.
             var event
-            if not check_token("STREAM_END"):
-                var token = peek_token()
+            if not scanner.check_token("STREAM_END"):
+                var token = scanner.peek_token()
                 var start_mark = token.start_mark
                 var temp_array = process_directives()
                 var version = temp_array[0]
                 var tags = temp_array[1]
-                if not check_token("DOCUMENT_START"):
+                if not scanner.check_token("DOCUMENT_START"):
                     SGYPaser.error("expected '<document start>', but found %s" % token.type,
                             token.start_mark)
-                token = get_token()
+                token = scanner.get_token()
                 var end_mark = token.end_mark
                 var is_explicit = true
                 event = Event.new("DOCUMENT_START", is_explicit, version, tags, start_mark, end_mark)
@@ -1756,7 +1761,7 @@ class SGYPaser:
                 state = parse_document_content
             else:
                 # Parse the end of the stream.
-                var token = get_token()
+                var token = scanner.get_token()
                 event = Event.new("STREAM_END", token.start_mark, token.end_mark)
                 assert(states.is_empty())
                 assert(marks.is_empty())
@@ -1766,12 +1771,12 @@ class SGYPaser:
         func parse_document_end():
 
             # Parse the document end.
-            var token = peek_token()
+            var token = scanner.peek_token()
             var start_mark = token.start_mark
             var end_mark = token.end_mark
             var is_explicit = false
-            if check_token("DOCUMENT_END"):
-                token = get_token()
+            if scanner.check_token("DOCUMENT_END"):
+                token = scanner.get_token()
                 end_mark = token.end_mark
                 is_explicit = true
             var event = Event.new("DOCUMENT_END", is_explicit, start_mark, end_mark)
@@ -1782,9 +1787,9 @@ class SGYPaser:
             return event
 
         func parse_document_content():
-            if check_token("DIRECTIVE",
+            if scanner.check_token("DIRECTIVE",
                     "DOCUMENT_START", "DOCUMENT_END", "STREAM_END"):
-                var event = process_empty_scalar(peek_token().start_mark)
+                var event = process_empty_scalar(scanner.peek_token().start_mark)
                 state = states.pop_back()
                 return event
             else:
@@ -1793,8 +1798,8 @@ class SGYPaser:
         func process_directives():
             yaml_version = null
             tag_handles = {}
-            while check_token("DIRECTIVE"):
-                var token = get_token()
+            while scanner.check_token("DIRECTIVE"):
+                var token = scanner.get_token()
                 if token.name == 'YAML':
                     if yaml_version != null:
                         SGYPaser.error("found duplicate YAML directive", token.start_mark)
@@ -1855,32 +1860,32 @@ class SGYPaser:
             var event
             var tag
             var anchor
-            if check_token("ALIAS"):
-                var token = get_token()
+            if scanner.check_token("ALIAS"):
+                var token = scanner.get_token()
                 event = Event.new("ALIAS", token.value, token.start_mark, token.end_mark)
                 state = states.pop_back()
             else:
                 var start_mark = null
                 var end_mark = null
                 var tag_mark = null
-                if check_token("ANCHOR"):
-                    var token = get_token()
+                if scanner.check_token("ANCHOR"):
+                    var token = scanner.get_token()
                     start_mark = token.start_mark
                     end_mark = token.end_mark
                     anchor = token.value
-                    if check_token("TAG"):
-                        token = get_token()
+                    if scanner.check_token("TAG"):
+                        token = scanner.get_token()
                         tag_mark = token.start_mark
                         end_mark = token.end_mark
                         tag = token.value
-                elif check_token("TAG"):
-                    var token = get_token()
+                elif scanner.check_token("TAG"):
+                    var token = scanner.get_token()
                     start_mark = token.start_mark
                     tag_mark = token.start_mark
                     end_mark = token.end_mark
                     tag = token.value
-                    if check_token("ANCHOR"):
-                        token = get_token()
+                    if scanner.check_token("ANCHOR"):
+                        token = scanner.get_token()
                         end_mark = token.end_mark
                         anchor = token.value
                 if tag != null:
@@ -1899,18 +1904,18 @@ class SGYPaser:
                 #            "found non-specific tag '!'", tag_mark,
                 #            "Please check 'http://pyyaml.org/wiki/YAMLNonSpecificTag' and share your opinion.")
                 if start_mark == null:
-                    start_mark = peek_token().start_mark
-                    end_mark = peek_token().start_mark
+                    start_mark = scanner.peek_token().start_mark
+                    end_mark = scanner.peek_token().start_mark
                 event = null
                 var implicit = (tag == null or tag == '!')
-                if is_indentless_sequence and check_token("BLOCK_ENTRY"):
-                    end_mark = peek_token().end_mark
+                if is_indentless_sequence and scanner.check_token("BLOCK_ENTRY"):
+                    end_mark = scanner.peek_token().end_mark
                     event = Event.new("SEQUENCE_START", anchor, tag, implicit,
                             start_mark, end_mark)
                     state = parse_indentless_sequence_entry
                 else:
-                    if check_token("SCALAR"):
-                        var token = get_token()
+                    if scanner.check_token("SCALAR"):
+                        var token = scanner.get_token()
                         end_mark = token.end_mark
                         if (token.plain and tag == null) or tag == '!':
                             implicit = [true, false]
@@ -1921,26 +1926,26 @@ class SGYPaser:
                         event = Event.new("SCALAR", anchor, tag, implicit, token.value, token.style,
                                 start_mark, end_mark)
                         state = states.pop_back()
-                    elif check_token("FLOW_SEQUENCE_START"):
-                        end_mark = peek_token().end_mark
+                    elif scanner.check_token("FLOW_SEQUENCE_START"):
+                        end_mark = scanner.peek_token().end_mark
                         var flow_style = true
                         event = Event.new("SEQUENCE_START", anchor, tag, implicit, flow_style,
                                 start_mark, end_mark)
                         state = parse_flow_sequence_first_entry
-                    elif check_token("FLOW_MAPPING_START"):
-                        end_mark = peek_token().end_mark
+                    elif scanner.check_token("FLOW_MAPPING_START"):
+                        end_mark = scanner.peek_token().end_mark
                         var flow_style = true
                         event = Event.new("MAPPING_START", anchor, tag, implicit, flow_style,
                                 start_mark, end_mark)
                         state = parse_flow_mapping_first_key
-                    elif is_block and check_token("BLOCK_SEQUENCE_START"):
-                        end_mark = peek_token().start_mark
+                    elif is_block and scanner.check_token("BLOCK_SEQUENCE_START"):
+                        end_mark = scanner.peek_token().start_mark
                         var flow_style = false
                         event = Event.new("SEQUENCE_START", anchor, tag, implicit, flow_style,
                                 start_mark, end_mark)
                         state = parse_block_sequence_first_entry
-                    elif is_block and check_token("BLOCK_MAPPING_START"):
-                        end_mark = peek_token().start_mark
+                    elif is_block and scanner.check_token("BLOCK_MAPPING_START"):
+                        end_mark = scanner.peek_token().start_mark
                         var flow_style = false
                         event = Event.new("MAPPING_START", anchor, tag, implicit, flow_style,
                                 start_mark, end_mark)
@@ -1953,7 +1958,7 @@ class SGYPaser:
                         state = states.pop_back()
                     else:
                         var node_type = 'block' if is_block else 'flow'
-                        var token = peek_token()
+                        var token = scanner.peek_token()
                         SGYPaser.error("while parsing a %s node" % node_type, start_mark,
                                 "expected the node content, but found %s" % token.type,
                                 token.start_mark)
@@ -1962,25 +1967,25 @@ class SGYPaser:
         # block_sequence ::= BLOCK-SEQUENCE-START (BLOCK-ENTRY block_node?)* BLOCK-END
 
         func parse_block_sequence_first_entry():
-            var token = get_token()
+            var token = scanner.get_token()
             marks.append(token.start_mark)
             return parse_block_sequence_entry()
 
         func parse_block_sequence_entry():
             var token
-            if check_token("BLOCK_ENTRY"):
-                token = get_token()
-                if not check_token("BLOCK_ENTRY", "BLOCK_END"):
+            if scanner.check_token("BLOCK_ENTRY"):
+                token = scanner.get_token()
+                if not scanner.check_token("BLOCK_ENTRY", "BLOCK_END"):
                     states.append(parse_block_sequence_entry)
                     return parse_block_node()
                 else:
                     state = parse_block_sequence_entry
                     return process_empty_scalar(token.end_mark)
-            if not check_token("BLOCK_END"):
-                token = peek_token()
+            if not scanner.check_token("BLOCK_END"):
+                token = scanner.peek_token()
                 SGYPaser.error("while parsing a block collection", marks[-1],
                         "expected <block end>, but found %r" % token.id, token.start_mark)
-            token = get_token()
+            token = scanner.get_token()
             var event = Event.new("SEQUENCE_END", token.start_mark, token.end_mark)
             state = states.pop_back()
             marks.pop_back()
@@ -1989,16 +1994,16 @@ class SGYPaser:
         # indentless_sequence ::= (BLOCK-ENTRY block_node?)+
 
         func parse_indentless_sequence_entry():
-            if check_token("BLOCK_ENTRY"):
-                var token = get_token()
-                if not check_token("BLOCK_ENTRY",
+            if scanner.check_token("BLOCK_ENTRY"):
+                var token = scanner.get_token()
+                if not scanner.check_token("BLOCK_ENTRY",
                         "KEY", "VALUE", "BLOCK_END"):
                     states.append(parse_indentless_sequence_entry)
                     return parse_block_node()
                 else:
                     state = parse_indentless_sequence_entry
                     return process_empty_scalar(token.end_mark)
-            var token = peek_token()
+            var token = scanner.peek_token()
             var event = Event.new("SEQUENCE_END", token.start_mark, token.start_mark)
             state = states.pop_back()
             return event
@@ -2009,34 +2014,34 @@ class SGYPaser:
         #                       BLOCK-END
 
         func parse_block_mapping_first_key():
-            var token = get_token()
+            var token = scanner.get_token()
             marks.append(token.start_mark)
             return parse_block_mapping_key()
 
         func parse_block_mapping_key():
             var token
-            if check_token("KEY"):
-                token = get_token()
-                if not check_token("KEY", "VALUE", "BLOCK_END"):
+            if scanner.check_token("KEY"):
+                token = scanner.get_token()
+                if not scanner.check_token("KEY", "VALUE", "BLOCK_END"):
                     states.append(parse_block_mapping_value)
                     return parse_block_node_or_indentless_sequence()
                 else:
                     state = parse_block_mapping_value
                     return process_empty_scalar(token.end_mark)
-            if not check_token("BLOCK_END"):
-                token = peek_token()
+            if not scanner.check_token("BLOCK_END"):
+                token = scanner.peek_token()
                 SGYPaser.error("while parsing a block mapping", marks[-1],
                         "expected <block end>, but found %r" % token.id, token.start_mark)
-            token = get_token()
+            token = scanner.get_token()
             var event = Event.new("MAPPING_END", token.start_mark, token.end_mark)
             state = states.pop_back()
             marks.pop_back()
             return event
 
         func parse_block_mapping_value():
-            if check_token("VALUE"):
-                var token = get_token()
-                if not check_token("KEY", "VALUE", "BLOCK_END"):
+            if scanner.check_token("VALUE"):
+                var token = scanner.get_token()
+                if not scanner.check_token("KEY", "VALUE", "BLOCK_END"):
                     states.append(parse_block_mapping_key)
                     return parse_block_node_or_indentless_sequence()
                 else:
@@ -2044,7 +2049,7 @@ class SGYPaser:
                     return process_empty_scalar(token.end_mark)
             else:
                 state = parse_block_mapping_key
-                var token = peek_token()
+                var token = scanner.peek_token()
                 return process_empty_scalar(token.start_mark)
 
         # flow_sequence     ::= FLOW-SEQUENCE-START
@@ -2059,40 +2064,40 @@ class SGYPaser:
         # generate an inline mapping (set syntax).
 
         func parse_flow_sequence_first_entry():
-            var token = get_token()
+            var token = scanner.get_token()
             marks.append(token.start_mark)
             var first = true
             return parse_flow_sequence_entry(first)
 
         func parse_flow_sequence_entry(first=false):
-            if not check_token("FLOW_SEQUENCE_END"):
+            if not scanner.check_token("FLOW_SEQUENCE_END"):
                 if not first:
-                    if check_token("FLOW_ENTRY"):
-                        get_token()
+                    if scanner.check_token("FLOW_ENTRY"):
+                        scanner.get_token()
                     else:
-                        var token = peek_token()
+                        var token = scanner.peek_token()
                         SGYPaser.error("while parsing a flow sequence", marks[-1],
                                 "expected ',' or ']', but got %r" % token.id, token.start_mark)
                 
-                if check_token("KEY"):
-                    var token = peek_token()
+                if scanner.check_token("KEY"):
+                    var token = scanner.peek_token()
                     var flow_style = true
                     var event = Event.new("MAPPING_START", null, null, true, flow_style,
                             token.start_mark, token.end_mark)
                     state = parse_flow_sequence_entry_mapping_key
                     return event
-                elif not check_token("FLOW_SEQUENCE_END"):
+                elif not scanner.check_token("FLOW_SEQUENCE_END"):
                     states.append(parse_flow_sequence_entry)
                     return parse_flow_node()
-            var token = get_token()
+            var token = scanner.get_token()
             var event = Event.new("SEQUENCE_END", token.start_mark, token.end_mark)
             state = states.pop_back()
             marks.pop_back()
             return event
 
         func parse_flow_sequence_entry_mapping_key():
-            var token = get_token()
-            if not check_token("VALUE",
+            var token = scanner.get_token()
+            if not scanner.check_token("VALUE",
                     "FLOW_ENTRY", "FLOW_SEQUENCE_END"):
                 states.append(parse_flow_sequence_entry_mapping_value)
                 return parse_flow_node()
@@ -2101,9 +2106,9 @@ class SGYPaser:
                 return process_empty_scalar(token.end_mark)
 
         func parse_flow_sequence_entry_mapping_value():
-            if check_token("VALUE"):
-                var token = get_token()
-                if not check_token("FLOW_ENTRY", "FLOW_SEQUENCE_END"):
+            if scanner.check_token("VALUE"):
+                var token = scanner.get_token()
+                if not scanner.check_token("FLOW_ENTRY", "FLOW_SEQUENCE_END"):
                     states.append(parse_flow_sequence_entry_mapping_end)
                     return parse_flow_node()
                 else:
@@ -2111,12 +2116,12 @@ class SGYPaser:
                     return process_empty_scalar(token.end_mark)
             else:
                 state = parse_flow_sequence_entry_mapping_end
-                var token = peek_token()
+                var token = scanner.peek_token()
                 return process_empty_scalar(token.start_mark)
 
         func parse_flow_sequence_entry_mapping_end():
             state = parse_flow_sequence_entry
-            var token = peek_token()
+            var token = scanner.peek_token()
             return Event.new("MAPPING_END", token.start_mark, token.start_mark)
 
         # flow_mapping  ::= FLOW-MAPPING-START
@@ -2126,42 +2131,42 @@ class SGYPaser:
         # flow_mapping_entry    ::= flow_node | KEY flow_node? (VALUE flow_node?)?
 
         func parse_flow_mapping_first_key():
-            var token = get_token()
+            var token = scanner.get_token()
             marks.append(token.start_mark)
             var first = true
             return parse_flow_mapping_key(first)
 
         func parse_flow_mapping_key(first=false):
-            if not check_token("FLOW_MAPPING_END"):
+            if not scanner.check_token("FLOW_MAPPING_END"):
                 if not first:
-                    if check_token("FLOW_ENTRY"):
-                        get_token()
+                    if scanner.check_token("FLOW_ENTRY"):
+                        scanner.get_token()
                     else:
-                        var token = peek_token()
+                        var token = scanner.peek_token()
                         SGYPaser.error("while parsing a flow mapping", marks[-1],
                                 "expected ',' or '}', but got %r" % token.id, token.start_mark)
-                if check_token("KEY"):
-                    var token = get_token()
-                    if not check_token("VALUE",
+                if scanner.check_token("KEY"):
+                    var token = scanner.get_token()
+                    if not scanner.check_token("VALUE",
                             "FLOW_ENTRY", "FLOW_MAPPING_END"):
                         states.append(parse_flow_mapping_value)
                         return parse_flow_node()
                     else:
                         state = parse_flow_mapping_value
                         return process_empty_scalar(token.end_mark)
-                elif not check_token("FLOW_MAPPING_END"):
+                elif not scanner.check_token("FLOW_MAPPING_END"):
                     states.append(parse_flow_mapping_empty_value)
                     return parse_flow_node()
-            var token = get_token()
+            var token = scanner.get_token()
             var event = Event.new("MAPPING_END", token.start_mark, token.end_mark)
             state = states.pop_back()
             marks.pop_back()
             return event
 
         func parse_flow_mapping_value():
-            if check_token("VALUE"):
-                var token = get_token()
-                if not check_token("FLOW_ENTRY", "FLOW_MAPPING_END"):
+            if scanner.check_token("VALUE"):
+                var token = scanner.get_token()
+                if not scanner.check_token("FLOW_ENTRY", "FLOW_MAPPING_END"):
                     states.append(parse_flow_mapping_key)
                     return parse_flow_node()
                 else:
@@ -2169,12 +2174,12 @@ class SGYPaser:
                     return process_empty_scalar(token.end_mark)
             else:
                 state = parse_flow_mapping_key
-                var token = peek_token()
+                var token = scanner.peek_token()
                 return process_empty_scalar(token.start_mark)
 
         func parse_flow_mapping_empty_value():
             state = parse_flow_mapping_key
-            return process_empty_scalar(peek_token().start_mark)
+            return process_empty_scalar(scanner.peek_token().start_mark)
 
         func process_empty_scalar(mark):
             return Event.new("SCALAR", null, null, [true, false], '', null, mark, mark)
