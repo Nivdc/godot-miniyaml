@@ -3,8 +3,8 @@
 # but even so it should not cause any problems, SGYP does not use a lot of memory.
 # for more detail: https://docs.godotengine.org/en/stable/classes/class_@gdscript.html#class-gdscript-annotation-static-unload
 
-
-class_name SGYPaser extends RefCounted
+class_name SGYPaser extends Node
+# class_name SGYPaser extends RefCounted
 # # You can use SGYP like a normal class, 
 # # but the plugin form allows you to decide whether to enable SGYP.
 
@@ -35,12 +35,20 @@ func load(yaml_bytes:PackedByteArray) -> Variant:
     var result = Constructor.new(Composer.new(Parser.new(Scanner.new(yaml_string)))).get_single_data()
     return result
 
+func load_all(yaml_string):
+    # yaml_string = match_bom_return_string(yaml_bytes)
+    var constructor = Constructor.new(Composer.new(Parser.new(Scanner.new(yaml_string))))
+    var result = []
+    while constructor.check_data():
+        result.append(constructor.get_data())
+    return result if result.size() > 1 else result[0]
+
 func dump(p_var:Variant):
     Emitter.stream = StreamWrapper.new()
     Representer.represent(p_var)
     return Emitter.stream.cache
 
-func parse_to_events(yaml_string :String):
+static func parse_to_events(yaml_string :String):
     errors = []
     var parser = Parser.new(Scanner.new(yaml_string))
     var events = parser.parse_to_events()
@@ -70,7 +78,7 @@ func parse_to_events(yaml_string :String):
             "MAPPING_END":
                 short_events.append("-MAP")
             "ALIAS":
-                short_events.append("=ALI *%s" % e.value)
+                short_events.append("=ALI *%s" % e.anchor)
             "SCALAR":
                 var tag     = '' if e.tag == null else "<%s> " % e.tag
                 var anchor  = '' if e.anchor == null or e.anchor.is_empty() else '&%s ' % e.anchor
@@ -1682,7 +1690,7 @@ class Event:
                 implicit = args[2]
                 is_flow_style = args[3]
             "ALIAS":
-                value = args[0]
+                anchor = args[0]
             "SCALAR":
                 anchor = args[0]
                 tag = args[1]
@@ -1865,7 +1873,7 @@ class Parser:
                 var prefix = token.value[1]
                 if handle in tag_handles:
                     SGYPaser.error(null, null,
-                            "duplicate tag handle %r" % handle,
+                            "duplicate tag handle %s" % handle,
                             token.start_mark)
                 tag_handles[handle] = prefix
 
@@ -2339,14 +2347,14 @@ class Composer:
             event = parser.get_event()
             anchor = event.anchor
             if anchor not in anchors:
-                SGYPaser.error("found undefined alias %r"
+                SGYPaser.error("found undefined alias %s"
                         % anchor, event.start_mark)
             return anchors[anchor]
         event = parser.peek_event()
         anchor = event.anchor
         if anchor != null:
             if anchor in anchors:
-                SGYPaser.error("found duplicate anchor %r; first occurrence"
+                SGYPaser.error("found duplicate anchor %s; first occurrence"
                         % anchor, anchors[anchor].start_mark,
                         "second occurrence", event.start_mark)
 
@@ -2785,7 +2793,7 @@ class Constructor:
         if tag_suffix == null:
             data = constructor.call(node)
         else:
-            data = constructor.call(tag_suffix, node)
+            data = constructor.call(node, tag_suffix)
         # if isinstance(data, types.GeneratorType):
         #     generator = data
         #     data = next(generator)
@@ -2819,7 +2827,6 @@ class Constructor:
     func construct_mapping(node, deep=false):
         if node.type == "MAPPING":
             flatten_mapping(node)
-
         if node.type != "MAPPING":
             SGYPaser.error("expected a mapping node, but found %s" % node.type,
                     node.start_mark)
@@ -2862,7 +2869,7 @@ class Constructor:
             var key_node = temp_array[0]
             var value_node = temp_array[1]
             if key_node.tag == 'tag:yaml.org,2002:merge':
-                node.value.erase(index)
+                node.value.remove_at(index)
                 if value_node.type == "MAPPING":
                     flatten_mapping(value_node)
                     merge.append_array(value_node.value)
@@ -2873,7 +2880,7 @@ class Constructor:
                             SGYPaser.error("while constructing a mapping",
                                     node.start_mark,
                                     "expected a mapping for merging, but found %s"
-                                    % subnode.id, subnode.start_mark)
+                                    % subnode.type, subnode.start_mark)
                         flatten_mapping(subnode)
                         submerge.append(subnode.value)
                     submerge.reverse()
@@ -2882,7 +2889,7 @@ class Constructor:
                 else:
                     SGYPaser.error("while constructing a mapping", node.start_mark,
                             "expected a mapping or list of mappings for merging, but found %s"
-                            % value_node.id, value_node.start_mark)
+                            % value_node.type, value_node.start_mark)
             elif key_node.tag == 'tag:yaml.org,2002:value':
                 key_node.tag = 'tag:yaml.org,2002:str'
                 index += 1
@@ -3950,7 +3957,7 @@ class Emitter:
         if not handle:
             SGYPaser.error("tag handle must not be empty")
         if handle[0] != '!' or handle[-1] != '!':
-            SGYPaser.error("tag handle must start and end with '!': %r" % handle)
+            SGYPaser.error("tag handle must start and end with '!': %s" % handle)
         for ch in handle.substr(1, handle.size()-1):
             if not (('0' <= ch and ch <= '9') or ('A' <= ch and ch <= 'Z') or ('a' <= ch and ch <= 'z')    \
                     or ch in '-_'):
