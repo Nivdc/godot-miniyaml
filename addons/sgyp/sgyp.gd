@@ -8,17 +8,17 @@ class_name SGYPaser extends Node
 # # You can use SGYP like a normal class, 
 # # but the plugin form allows you to decide whether to enable SGYP.
 
-static func parse(yaml_data) -> Variant:
-    var yaml_data_type :String = type_string(typeof(yaml_data))
-    if yaml_data_type == "String":
-        return SGYPaser.new().load(yaml_data.to_utf8_buffer())
-    elif yaml_data_type == "PackedByteArray":
-        return SGYPaser.new().load(yaml_data)
-    elif yaml_data_type == "StreamPeerBuffer":
-        return SGYPaser.new().load(yaml_data.data_array)
-    else:
-        SGYPaser.error("Unsupported YAML data type.")
-        return null
+# static func parse(yaml_data) -> Variant:
+#     var yaml_data_type :String = type_string(typeof(yaml_data))
+#     if yaml_data_type == "String":
+#         return SGYPaser.new().load(yaml_data.to_utf8_buffer())
+#     elif yaml_data_type == "PackedByteArray":
+#         return SGYPaser.new().load(yaml_data)
+#     elif yaml_data_type == "StreamPeerBuffer":
+#         return SGYPaser.new().load(yaml_data.data_array)
+#     else:
+#         SGYPaser.error("Unsupported YAML data type.")
+#         return null
 
 static var errors :Array[String]
 
@@ -30,13 +30,12 @@ func _init():
     Serializer.set_up()
     Emitter.set_up()
 
-func load(yaml_bytes:PackedByteArray) -> Variant:
-    var yaml_string = match_bom_return_string(yaml_bytes)
+static func load(yaml_string) -> Variant:
+    # var yaml_string = match_bom_return_string(yaml_bytes)
     var result = Constructor.new(Composer.new(Parser.new(Scanner.new(yaml_string)))).get_single_data()
     return result
 
 func load_all(yaml_string):
-    # yaml_string = match_bom_return_string(yaml_bytes)
     var constructor = Constructor.new(Composer.new(Parser.new(Scanner.new(yaml_string))))
     var result = []
     while constructor.check_data():
@@ -102,33 +101,33 @@ static func warn(message: String = "Something is wrong"):
 static func has_error() -> bool:
     return not errors.is_empty()
 
-static func match_bom_return_string(yaml_bytes:PackedByteArray) -> String:
-    var character_encoding = capture_byte_order_mark(yaml_bytes)
-    var yaml_string :String
-    match character_encoding:
-        "UTF-8"               : yaml_string = yaml_bytes.get_string_from_utf8()
-        "UTF-16LE", "UTF-16BE": yaml_string = yaml_bytes.get_string_from_utf16()
-        "UTF-32LE", "UTF-32BE": yaml_string = yaml_bytes.get_string_from_utf32()
-    # Remove the BOM, if there is one
-    return yaml_string if not yaml_string.begins_with("\uFEFF") else yaml_string.erase(0, 1)
+# static func match_bom_return_string(yaml_bytes:PackedByteArray) -> String:
+#     var character_encoding = capture_byte_order_mark(yaml_bytes)
+#     var yaml_string :String
+#     match character_encoding:
+#         "UTF-8"               : yaml_string = yaml_bytes.get_string_from_utf8()
+#         "UTF-16LE", "UTF-16BE": yaml_string = yaml_bytes.get_string_from_utf16()
+#         "UTF-32LE", "UTF-32BE": yaml_string = yaml_bytes.get_string_from_utf32()
+#     # Remove the BOM, if there is one
+#     return yaml_string if not yaml_string.begins_with("\uFEFF") else yaml_string.erase(0, 1)
 
-static func capture_byte_order_mark(bytes :PackedByteArray) -> String:
-    # NOTE: I don't know why, but match doesn't work for PackedByteArray.
-    var first_char := Array(bytes.slice(0, 4))
-    match first_char:
-        # Explicit BOM
-        [239, 187, 191, _  ] : return "UTF-8"
-        [255, 254, 0,   0  ] : return "UTF-32LE"
-        [255, 254, _,   _  ] : return "UTF-16LE"
-        [0,   0,   254, 255] : return "UTF-32BE"
-        [254, 255, _,   _  ] : return "UTF-16BE"
-        # ASCII first character
-        [_,   0,   0,   0  ] : return "UTF-32LE"
-        [_,   0,   _,   _  ] : return "UTF-16LE"
-        [0,   0,   0,   _  ] : return "UTF-32BE"
-        [0,   _,   _,   _  ] : return "UTF-16BE"
-        # Default
-        _                    : return "UTF-8"
+# static func capture_byte_order_mark(bytes :PackedByteArray) -> String:
+#     # NOTE: I don't know why, but match doesn't work for PackedByteArray.
+#     var first_char := Array(bytes.slice(0, 4))
+#     match first_char:
+#         # Explicit BOM
+#         [239, 187, 191, _  ] : return "UTF-8"
+#         [255, 254, 0,   0  ] : return "UTF-32LE"
+#         [255, 254, _,   _  ] : return "UTF-16LE"
+#         [0,   0,   254, 255] : return "UTF-32BE"
+#         [254, 255, _,   _  ] : return "UTF-16BE"
+#         # ASCII first character
+#         [_,   0,   0,   0  ] : return "UTF-32LE"
+#         [_,   0,   _,   _  ] : return "UTF-16LE"
+#         [0,   0,   0,   _  ] : return "UTF-32BE"
+#         [0,   _,   _,   _  ] : return "UTF-16BE"
+#         # Default
+#         _                    : return "UTF-8"
 
 
 # Load Part
@@ -243,16 +242,6 @@ class Mark:
         return where
 
 class Scanner:
-    # The Scanner behaves very similarly to PyYAML's Scanner and Reader, 
-    # but SGYP doesn't need to handle streaming data, 
-    # so it outputs the results (i.e tokens) to the SGYPaser all at once.
-
-    # and '' is not supported.
-
-    # If you want to learn more details, you can view the PyYAML source code.
-    # Scanner: https://github.com/yaml/pyyaml/blob/main/lib/yaml/scanner.py
-    # Reader : https://github.com/yaml/pyyaml/blob/main/lib/yaml/reader.py
-
     var yaml_string  := ""
     var char_index   := 0 # = Reader.pointer
     var line_index   := 0 # = Reader.line
@@ -2451,7 +2440,7 @@ class Resolver:
         Resolver.add_implicit_resolver(
                 'tag:yaml.org,2002:int',
                 RegEx.create_from_string(r'''(?x)^(?:[-+]?0b[0-1_]+
-                            |[-+]?0[0-7_]+
+                            |[-+]?0o[0-7_]+
                             |[-+]?(?:0|[1-9][0-9_]*)
                             |[-+]?0x[0-9a-fA-F_]+
                             |[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+)$'''),
@@ -2647,10 +2636,10 @@ class Constructor:
     static var yaml_constructors = {}
     static var yaml_multi_constructors = {}
 
-    var constructed_objects = {}
-    var recursive_objects = {}
-    # var state_generators = []
-    var deep_construct = false
+    static var constructed_objects = {}
+    static var recursive_objects = {}
+    # static var state_generators = []
+    static var deep_construct = false
 
     var composer :Composer
 
@@ -2674,9 +2663,13 @@ class Constructor:
                 'tag:yaml.org,2002:float',
                 Constructor.construct_yaml_float)
 
-        # Constructor.add_constructor(
-        #         'tag:yaml.org,2002:binary',
-        #         Constructor.construct_yaml_binary)
+        Constructor.add_constructor(
+            'tag:yaml.org,2002:str',
+            Constructor.construct_yaml_str)
+
+        Constructor.add_constructor(
+                'tag:yaml.org,2002:binary',
+                Constructor.construct_yaml_binary)
 
         # Constructor.add_constructor(
         #         'tag:yaml.org,2002:timestamp',
@@ -2694,17 +2687,13 @@ class Constructor:
         #         'tag:yaml.org,2002:set',
         #         Constructor.construct_yaml_set)
 
-        # Constructor.add_constructor(
-        #         'tag:yaml.org,2002:str',
-        #         Constructor.construct_yaml_str)
+        Constructor.add_constructor(
+                'tag:yaml.org,2002:seq',
+                Constructor.construct_yaml_seq)
 
-        # Constructor.add_constructor(
-        #         'tag:yaml.org,2002:seq',
-        #         Constructor.construct_yaml_seq)
-
-        # Constructor.add_constructor(
-        #         'tag:yaml.org,2002:map',
-        #         Constructor.construct_yaml_map)
+        Constructor.add_constructor(
+                'tag:yaml.org,2002:map',
+                Constructor.construct_yaml_map)
 
         # Constructor.add_constructor(null,
         #         Constructor.construct_undefined)
@@ -2745,17 +2734,17 @@ class Constructor:
     func construct_document(node):
         var data = construct_object(node)
         # while state_generators:
-        #     state_generators = state_generators
+        #     var _state_generators = state_generators
         #     state_generators = []
-        #     for generator in state_generators:
-        #         for dummy in generator:
+        #     for generator in _state_generators:
+        #         for _dummy in generator:
         #             pass
         constructed_objects = {}
         recursive_objects = {}
         deep_construct = false
         return data
 
-    func construct_object(node, deep=false):
+    static func construct_object(node, deep=false):
         var old_deep
         if node in constructed_objects:
             return constructed_objects[node]
@@ -2763,7 +2752,8 @@ class Constructor:
             old_deep = deep_construct
             deep_construct = true
         if node in recursive_objects:
-            SGYPaser.error("found unconstructable recursive node", node.start_mark)
+            return recursive_objects[node]
+            # SGYPaser.error("found unconstructable recursive node %s" % node.start_mark)
         recursive_objects[node] = null
         var constructor = null
         var tag_suffix = null
@@ -2814,7 +2804,7 @@ class Constructor:
                     node.start_mark)
         return node.value
 
-    func construct_sequence(node, deep=false):
+    static func construct_sequence(node, deep=false):
         if node.type != "SEQUENCE":
             SGYPaser.error("expected a sequence node, but found %s" % node.type,
                     node.start_mark)
@@ -2824,7 +2814,7 @@ class Constructor:
             result_array.append(construct_object(child, deep))
         return result_array
 
-    func construct_mapping(node, deep=false):
+    static func construct_mapping(node, deep=false):
         if node.type == "MAPPING":
             flatten_mapping(node)
         if node.type != "MAPPING":
@@ -2842,18 +2832,18 @@ class Constructor:
             mapping[key] = value
         return mapping
 
-    func construct_pairs(node, deep=false):
-        if node.type != "MAPPING":
-            SGYPaser.error("expected a mapping node, but found %s" % node.type,
-                    node.start_mark)
-        var pairs = []
-        for temp_array in node.value:
-            var key_node = temp_array[0]
-            var value_node = temp_array[1]
-            var key = construct_object(key_node, deep)
-            var value = construct_object(value_node, deep)
-            pairs.append([key, value])
-        return pairs
+    # func construct_pairs(node, deep=false):
+    #     if node.type != "MAPPING":
+    #         SGYPaser.error("expected a mapping node, but found %s" % node.type,
+    #                 node.start_mark)
+    #     var pairs = []
+    #     for temp_array in node.value:
+    #         var key_node = temp_array[0]
+    #         var value_node = temp_array[1]
+    #         var key = construct_object(key_node, deep)
+    #         var value = construct_object(value_node, deep)
+    #         pairs.append([key, value])
+    #     return pairs
 
     static func add_constructor(tag :String, constructor :Callable):
         yaml_constructors[tag] = constructor
@@ -2861,7 +2851,7 @@ class Constructor:
     static func add_multi_constructor(tag_prefix, multi_constructor):
         yaml_multi_constructors[tag_prefix] = multi_constructor
 
-    func flatten_mapping(node):
+    static func flatten_mapping(node):
         var merge = []
         var index = 0
         while index < len(node.value):
@@ -2929,9 +2919,11 @@ class Constructor:
             return sign*value.substr(2).bin_to_int()
         elif value.begins_with('0x'):
             return sign*value.substr(2).hex_to_int()
-        # FIXME
-        # elif value[0] == '0':
-        #     return sign*int(value, 8)
+        elif value.begins_with('0o'):
+            var result = 0
+            for ch in value.substr(2):
+                result = result * 8 + (ord(ch) - ord('0'))
+            return sign*result
         elif ':' in value:
             var digits = []
             for part in value.split(':'):
@@ -2972,21 +2964,9 @@ class Constructor:
         else:
             return sign*float(value)
 
-    # func construct_yaml_binary(node):
-    #     try:
-    #         value = construct_scalar(node).encode('ascii')
-    #     except UnicodeEncodeError as exc:
-    #         SGYPaser.error(None, None,
-    #                 "failed to convert base64 data into ascii: %s" % exc,
-    #                 node.start_mark)
-    #     try:
-    #         if hasattr(base64, 'decodebytes'):
-    #             return base64.decodebytes(value)
-    #         else:
-    #             return base64.decodestring(value)
-    #     except binascii.Error as exc:
-    #         SGYPaser.error(None, None,
-    #                 "failed to decode base64 data: %s" % exc, node.start_mark)
+    static func construct_yaml_binary(node):
+        var value = construct_scalar(node)
+        return Marshalls.base64_to_raw(value)
 
     # static var timestamp_regexp = RegEx.create_from_string(
     #         r'''(?x)^(?P<year>[0-9][0-9][0-9][0-9])
@@ -3080,19 +3060,20 @@ class Constructor:
     #     value = construct_mapping(node)
     #     data.update(value)
 
-    # static func construct_yaml_str(node):
-    #     return construct_scalar(node)
+    static func construct_yaml_str(node):
+        return construct_scalar(node)
 
-    # func construct_yaml_seq(node):
-    #     data = []
-    #     yield data
-    #     data.append_array(construct_sequence(node))
+    static func construct_yaml_seq(node):
+        var data = []
+        recursive_objects[node] = data
+        data.append_array(construct_sequence(node))
+        return data
 
-    # func construct_yaml_map(node):
-    #     data = {}
-    #     yield data
-    #     value = construct_mapping(node)
-    #     data.update(value)
+    static func construct_yaml_map(node):
+        var data = {}
+        recursive_objects[node] = data
+        data.merge(construct_mapping(node), true)
+        return data
 
     # func construct_yaml_object(node, cls):
     #     data = cls.__new__(cls)
@@ -3107,6 +3088,9 @@ class Constructor:
     # static func construct_undefined(node):
     #     SGYPaser.error("could not determine a constructor for the tag %s" % node.tag,
     #             node.start_mark)
+
+    # static func register_constructed_object(node, data):
+
 
 
 # Dump Part
@@ -3136,8 +3120,8 @@ class Representer:
         Representer.add_representer("String",
                 Representer.represent_str)
 
-        # Representer.add_representer(bytes,
-        #         Representer.represent_binary)
+        Representer.add_representer("PackedByteArray",
+                Representer.represent_binary)
 
         Representer.add_representer("bool",
                 Representer.represent_bool)
@@ -3241,27 +3225,9 @@ class Representer:
         if alias_key != null:
             represented_objects[alias_key] = node
         var best_style = true
-        # if hasattr(mapping, 'items'):
-        #     mapping = list(mapping.items())
-        #     if sort_keys:
-        #         # try:
-        #         mapping = sorted(mapping)
-        #         # except TypeError:
-        #         #     pass
 
         if sort_keys:
             mapping.sort()
-
-        # for temp_array in mapping:
-        #     var item_key = temp_array[0]
-        #     var item_value = temp_array[1]
-        #     var node_key = represent_data(item_key)
-        #     var node_value = represent_data(item_value)
-        #     if not (node_key.type   == "SCALAR"  and not node_key.style):
-        #         best_style = false
-        #     if not (node_value.type == "SCALAR"  and not node_value.style):
-        #         best_style = false
-        #     value.append([node_key, node_value])
         
         for key in mapping:
             var mapping_value = mapping[key]
@@ -3295,12 +3261,9 @@ class Representer:
     static func represent_str(data :String):
         return represent_scalar('tag:yaml.org,2002:str', data)
 
-    # func represent_binary(data):
-    #     if hasattr(base64, 'encodebytes'):
-    #         data = base64.encodebytes(data).decode('ascii')
-    #     else:
-    #         data = base64.encodestring(data).decode('ascii')
-    #     return represent_scalar('tag:yaml.org,2002:binary', data, style='|')
+    static func represent_binary(data :PackedByteArray):
+        var value = Marshalls.raw_to_base64(data)
+        return represent_scalar('tag:yaml.org,2002:binary', value, '|')
 
     static func represent_bool(data :bool):
         var value = 'true' if data else 'false'
