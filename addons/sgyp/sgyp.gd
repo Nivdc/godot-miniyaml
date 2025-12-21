@@ -2375,7 +2375,7 @@ class Composer:
         if tag == null or tag == '!':
             tag = Resolver.resolve("SEQUENCE", null, start_event.implicit)
         var node = YAMLNode.new("SEQUENCE", tag, [], start_event.is_flow_style,
-                start_event.start_mark, null)
+                start_event.start_mark, start_event.end_mark)
         if anchor != null:
             anchors[anchor] = node
         var index = 0
@@ -2392,7 +2392,7 @@ class Composer:
         if tag == null or tag == '!':
             tag = Resolver.resolve("MAPPING", null, start_event.implicit)
         var node = YAMLNode.new("MAPPING", tag, [], start_event.is_flow_style,
-                start_event.start_mark, null)
+                start_event.start_mark, start_event.end_mark)
         if anchor != null:
             anchors[anchor] = node
         while not parser.check_event("MAPPING_END"):
@@ -2408,7 +2408,6 @@ class Composer:
         node.end_mark = end_event.end_mark
         return node
 
-# NOTE: This class might need to be completely rewritten...
 class Resolver:
     const DEFAULT_SCALAR_TAG    = 'tag:yaml.org,2002:str'
     const DEFAULT_SEQUENCE_TAG  = 'tag:yaml.org,2002:seq'
@@ -2671,21 +2670,21 @@ class Constructor:
                 'tag:yaml.org,2002:binary',
                 Constructor.construct_yaml_binary)
 
-        # Constructor.add_constructor(
-        #         'tag:yaml.org,2002:timestamp',
-        #         Constructor.construct_yaml_timestamp)
+        Constructor.add_constructor(
+                'tag:yaml.org,2002:timestamp',
+                Constructor.construct_yaml_timestamp)
 
-        # Constructor.add_constructor(
-        #         'tag:yaml.org,2002:omap',
-        #         Constructor.construct_yaml_omap)
+        Constructor.add_constructor(
+                'tag:yaml.org,2002:omap',
+                Constructor.construct_yaml_omap)
 
-        # Constructor.add_constructor(
-        #         'tag:yaml.org,2002:pairs',
-        #         Constructor.construct_yaml_pairs)
+        Constructor.add_constructor(
+                'tag:yaml.org,2002:pairs',
+                Constructor.construct_yaml_pairs)
 
-        # Constructor.add_constructor(
-        #         'tag:yaml.org,2002:set',
-        #         Constructor.construct_yaml_set)
+        Constructor.add_constructor(
+                'tag:yaml.org,2002:set',
+                Constructor.construct_yaml_set)
 
         Constructor.add_constructor(
                 'tag:yaml.org,2002:seq',
@@ -2745,6 +2744,7 @@ class Constructor:
         return data
 
     static func construct_object(node, deep=false):
+        print(node.type, " m ", node.start_mark == null)
         var old_deep
         if node in constructed_objects:
             return constructed_objects[node]
@@ -2968,97 +2968,63 @@ class Constructor:
         var value = construct_scalar(node)
         return Marshalls.base64_to_raw(value)
 
-    # static var timestamp_regexp = RegEx.create_from_string(
-    #         r'''(?x)^(?P<year>[0-9][0-9][0-9][0-9])
-    #             -(?P<month>[0-9][0-9]?)
-    #             -(?P<day>[0-9][0-9]?)
-    #             (?:(?:[Tt]|[ \t]+)
-    #             (?P<hour>[0-9][0-9]?)
-    #             :(?P<minute>[0-9][0-9])
-    #             :(?P<second>[0-9][0-9])
-    #             (?:\.(?P<fraction>[0-9]*))?
-    #             (?:[ \t]*(?P<tz>Z|(?P<tz_sign>[-+])(?P<tz_hour>[0-9][0-9]?)
-    #             (?::(?P<tz_minute>[0-9][0-9]))?))?)?$''')
+    static func construct_yaml_timestamp(node):
+        return  construct_yaml_str(node)
 
-    # func construct_yaml_timestamp(node):
-    #     value = construct_scalar(node)
-    #     var match = timestamp_regexp.search_all(node.value)
-    #     values = match.strings
-    #     year = int(values['year'])
-    #     month = int(values['month'])
-    #     day = int(values['day'])
-    #     if not values['hour']:
-    #         return datetime.date(year, month, day)
-    #     hour = int(values['hour'])
-    #     minute = int(values['minute'])
-    #     second = int(values['second'])
-    #     fraction = 0
-    #     tzinfo = null
-    #     if values['fraction']:
-    #         fraction = values['fraction'].substr(0,6)
-    #         while len(fraction) < 6:
-    #             fraction += '0'
-    #         fraction = int(fraction)
-    #     if values['tz_sign']:
-    #         tz_hour = int(values['tz_hour'])
-    #         tz_minute = int(values['tz_minute'] or 0)
-    #         delta = datetime.timedelta(hours=tz_hour, minutes=tz_minute)
-    #         if values['tz_sign'] == '-':
-    #             delta = -delta
-    #         tzinfo = datetime.timezone(delta)
-    #     elif values['tz']:
-    #         tzinfo = datetime.timezone.utc
-    #     return datetime.datetime(year, month, day, hour, minute, second, fraction,
-    #                             tzinfo=tzinfo)
+    static func construct_yaml_omap(node):
+        var omap = []
+        recursive_objects[node] = omap
+        if node.type != "SEQUENCE":
+            SGYPaser.error("while constructing an ordered map", node.start_mark,
+                    "expected a sequence, but found %s" % node.type, node.start_mark)
+        var key_cache = []
+        for subnode in node.value:
+            if subnode.type != "MAPPING":
+                SGYPaser.error("while constructing an ordered map", node.start_mark,
+                        "expected a mapping of length 1, but found %s" % subnode.type,
+                        subnode.start_mark)
+            if len(subnode.value) != 1:
+                SGYPaser.error("while constructing an ordered map", node.start_mark,
+                        "expected a single mapping item, but found %d items" % len(subnode.value),
+                        subnode.start_mark)
+            var temp_array = subnode.value[0]
+            var key_node = temp_array[0]
+            var value_node = temp_array[1]
+            var key = construct_object(key_node)
+            if key in key_cache:
+                SGYPaser.error("while constructing an ordered map", node.start_mark,
+                        "found duplicate key", subnode.start_mark)
+            var value = construct_object(value_node)
+            key_cache.append(key)
+            omap.append({key:value})
+        return omap
 
-    # func construct_yaml_omap(node):
-    #     # Note: we do not check for duplicate keys, because it's too
-    #     # CPU-expensive.
-    #     omap = []
-    #     yield omap
-    #     if not isinstance(node, SequenceNode):
-    #         SGYPaser.error("while constructing an ordered map", node.start_mark,
-    #                 "expected a sequence, but found %s" % node.id, node.start_mark)
-    #     for subnode in node.value:
-    #         if not isinstance(subnode, MappingNode):
-    #             SGYPaser.error("while constructing an ordered map", node.start_mark,
-    #                     "expected a mapping of length 1, but found %s" % subnode.id,
-    #                     subnode.start_mark)
-    #         if len(subnode.value) != 1:
-    #             SGYPaser.error("while constructing an ordered map", node.start_mark,
-    #                     "expected a single mapping item, but found %d items" % len(subnode.value),
-    #                     subnode.start_mark)
-    #         key_node, value_node = subnode.value[0]
-    #         key = construct_object(key_node)
-    #         value = construct_object(value_node)
-    #         omap.append((key, value))
+    static func construct_yaml_pairs(node):
+        # Note: the same code as `construct_yaml_omap`, but allows duplicate keys.
+        var pairs = []
+        recursive_objects[node] = pairs
+        if node.type != "SEQUENCE":
+            SGYPaser.error("while constructing an ordered map", node.start_mark,
+                    "expected a sequence, but found %s" % node.type, node.start_mark)
+        for subnode in node.value:
+            if subnode.type != "MAPPING":
+                SGYPaser.error("while constructing an ordered map", node.start_mark,
+                        "expected a mapping of length 1, but found %s" % subnode.type,
+                        subnode.start_mark)
+            if len(subnode.value) != 1:
+                SGYPaser.error("while constructing an ordered map", node.start_mark,
+                        "expected a single mapping item, but found %d items" % len(subnode.value),
+                        subnode.start_mark)
+            var temp_array = subnode.value[0]
+            var key_node = temp_array[0]
+            var value_node = temp_array[1]
+            var key = construct_object(key_node)
+            var value = construct_object(value_node)
+            pairs.append({key:value})
+        return pairs
 
-    # func construct_yaml_pairs(node):
-    #     # Note: the same code as `construct_yaml_omap`.
-    #     pairs = []
-    #     yield pairs
-    #     if not isinstance(node, SequenceNode):
-    #         SGYPaser.error("while constructing pairs", node.start_mark,
-    #                 "expected a sequence, but found %s" % node.id, node.start_mark)
-    #     for subnode in node.value:
-    #         if not isinstance(subnode, MappingNode):
-    #             SGYPaser.error("while constructing pairs", node.start_mark,
-    #                     "expected a mapping of length 1, but found %s" % subnode.id,
-    #                     subnode.start_mark)
-    #         if len(subnode.value) != 1:
-    #             SGYPaser.error("while constructing pairs", node.start_mark,
-    #                     "expected a single mapping item, but found %d items" % len(subnode.value),
-    #                     subnode.start_mark)
-    #         key_node, value_node = subnode.value[0]
-    #         key = construct_object(key_node)
-    #         value = construct_object(value_node)
-    #         pairs.append((key, value))
-
-    # func construct_yaml_set(node):
-    #     data = set()
-    #     yield data
-    #     value = construct_mapping(node)
-    #     data.update(value)
+    static func construct_yaml_set(node):
+        return construct_yaml_map(node)
 
     static func construct_yaml_str(node):
         return construct_scalar(node)
@@ -3088,10 +3054,6 @@ class Constructor:
     # static func construct_undefined(node):
     #     SGYPaser.error("could not determine a constructor for the tag %s" % node.tag,
     #             node.start_mark)
-
-    # static func register_constructed_object(node, data):
-
-
 
 # Dump Part
 
