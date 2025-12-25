@@ -8,17 +8,26 @@ class_name SGYPaser extends Node
 # # You can use SGYP like a normal class, 
 # # but the plugin form allows you to decide whether to enable SGYP.
 
-# static func parse(yaml_data) -> Variant:
-#     var yaml_data_type :String = type_string(typeof(yaml_data))
-#     if yaml_data_type == "String":
-#         return SGYPaser.new().load(yaml_data.to_utf8_buffer())
-#     elif yaml_data_type == "PackedByteArray":
-#         return SGYPaser.new().load(yaml_data)
-#     elif yaml_data_type == "StreamPeerBuffer":
-#         return SGYPaser.new().load(yaml_data.data_array)
-#     else:
-#         SGYPaser.error("Unsupported YAML data type.")
-#         return null
+class YAMLResult:
+    var data
+    var errors
+
+    func _init(p_data, p_errors):
+        data=p_data
+        errors=p_errors
+
+    func get_data():
+        return data if not has_error() else null
+
+    func has_error():
+        return not errors.is_empty()
+
+    func get_errors():
+        return errors
+
+    func get_error(index=0):
+        return errors[index]
+
 
 static var errors :Array[String]
 
@@ -30,19 +39,24 @@ func _init():
     Serializer.set_up()
     Emitter.set_up()
 
+static func parse(yaml_string) -> YAMLResult:
+    return YAMLResult.new(load_all(yaml_string), errors)
+
 static func load(yaml_string) -> Variant:
-    # var yaml_string = match_bom_return_string(yaml_bytes)
+    errors = []
     var result = Constructor.new(Composer.new(Parser.new(Scanner.new(yaml_string)))).get_single_data()
     return result
 
-func load_all(yaml_string):
+static func load_all(yaml_string):
+    errors = []
     var constructor = Constructor.new(Composer.new(Parser.new(Scanner.new(yaml_string))))
     var result = []
     while constructor.check_data():
         result.append(constructor.get_data())
     return result if result.size() > 1 else result[0]
 
-func dump(p_var:Variant):
+static func dump(p_var:Variant) -> String:
+    errors = []
     Emitter.stream = StreamWrapper.new()
     Representer.represent(p_var)
     return Emitter.stream.cache
@@ -101,36 +115,42 @@ static func warn(message: String = "Something is wrong"):
 static func has_error() -> bool:
     return not errors.is_empty()
 
-# static func match_bom_return_string(yaml_bytes:PackedByteArray) -> String:
-#     var character_encoding = capture_byte_order_mark(yaml_bytes)
-#     var yaml_string :String
-#     match character_encoding:
-#         "UTF-8"               : yaml_string = yaml_bytes.get_string_from_utf8()
-#         "UTF-16LE", "UTF-16BE": yaml_string = yaml_bytes.get_string_from_utf16()
-#         "UTF-32LE", "UTF-32BE": yaml_string = yaml_bytes.get_string_from_utf32()
-#     # Remove the BOM, if there is one
-#     return yaml_string if not yaml_string.begins_with("\uFEFF") else yaml_string.erase(0, 1)
+static func register_class(p_class:Script, p_serialize="", p_deserialize="", p_tag=""):
+    var class_global_name = p_class.get_global_name()
+    var script_method_list = p_class.get_script_method_list()
+    var script_method_name_list = script_method_list.map(func(dict): return dict.name)
+    assert("_init" in script_method_name_list)
 
-# static func capture_byte_order_mark(bytes :PackedByteArray) -> String:
-#     # NOTE: I don't know why, but match doesn't work for PackedByteArray.
-#     var first_char := Array(bytes.slice(0, 4))
-#     match first_char:
-#         # Explicit BOM
-#         [239, 187, 191, _  ] : return "UTF-8"
-#         [255, 254, 0,   0  ] : return "UTF-32LE"
-#         [255, 254, _,   _  ] : return "UTF-16LE"
-#         [0,   0,   254, 255] : return "UTF-32BE"
-#         [254, 255, _,   _  ] : return "UTF-16BE"
-#         # ASCII first character
-#         [_,   0,   0,   0  ] : return "UTF-32LE"
-#         [_,   0,   _,   _  ] : return "UTF-16LE"
-#         [0,   0,   0,   _  ] : return "UTF-32BE"
-#         [0,   _,   _,   _  ] : return "UTF-16BE"
-#         # Default
-#         _                    : return "UTF-8"
+    if class_global_name.is_empty():
+        SGYPaser.error("Unable to register class")
+    if not p_serialize.is_empty() and p_serialize not in script_method_name_list:
+        SGYPaser.error("Unable to register class %s. There is no method named %s" % [class_global_name, p_serialize])
+    if not p_deserialize.is_empty() and p_deserialize not in script_method_name_list:
+        SGYPaser.error("Unable to register class %s. There is no method named %s" % [class_global_name, p_deserialize])
+
+    p_tag = class_global_name if p_tag.is_empty() else p_tag
+    p_tag = '!'+p_tag
+    #FIXME: check p_tag is a builtin tag or already exist.
+
+    Constructor.add_constructor(p_tag, Constructor.construct_godot_object.bind(p_class, p_deserialize))
+    Representer.add_representer(class_global_name, Representer.represent_godot_object.bind(p_tag, p_serialize))
 
 
-# Load Part
+##############################################################
+#                                                            #
+#  Load Part                                                 #
+#  ─────────                                                 #
+#                  ┌───────┐ Token  ┌──────┐    Event        #
+#  String  ───────►│Scanner│───────►│Parser│──────────────┐  #
+#                  └───────┘        └──────┘              │  #
+#                                          ┌──────────┐   │  #
+#                 ┌───────────┐  YAMLNode  │ Composer │   │  #
+#  Variant ◄──────│Constructor│◄────────── │┌────────┐│◄──┘  #
+#                 └───────────┘            ││Resolver││      #
+#                                          │└────────┘│      #
+#                                          └──────────┘      #
+#                                                            #
+##############################################################
 
 class Token:
     # Scanner produces tokens of the following types:
@@ -197,7 +217,7 @@ class Token:
                 end_mark   = args[1]
 
 class Mark:
-    static var source_name := "<unknown stream>"
+    static var source_name := "<String>"
     var yaml_string     :String
     var char_index      :int
     var line_index      :int
@@ -2646,56 +2666,20 @@ class Constructor:
         composer = p_composer
 
     static func init_yaml_constructors():
-        Constructor.add_constructor(
-                'tag:yaml.org,2002:null',
-                Constructor.construct_yaml_null)
+        for builtin_type in ("null bool int float str binary timestamp" + ' ' +\
+        "omap pairs set seq map").split(' '):
+            Constructor.add_constructor("tag:yaml.org,2002:%s" % builtin_type,
+            Constructor["construct_yaml_%s" % builtin_type])
 
-        Constructor.add_constructor(
-                'tag:yaml.org,2002:bool',
-                Constructor.construct_yaml_bool)
+        Constructor.add_constructor(null,
+                Constructor.construct_undefined)
 
-        Constructor.add_constructor(
-                'tag:yaml.org,2002:int',
-                Constructor.construct_yaml_int)
-
-        Constructor.add_constructor(
-                'tag:yaml.org,2002:float',
-                Constructor.construct_yaml_float)
-
-        Constructor.add_constructor(
-            'tag:yaml.org,2002:str',
-            Constructor.construct_yaml_str)
-
-        Constructor.add_constructor(
-                'tag:yaml.org,2002:binary',
-                Constructor.construct_yaml_binary)
-
-        Constructor.add_constructor(
-                'tag:yaml.org,2002:timestamp',
-                Constructor.construct_yaml_timestamp)
-
-        Constructor.add_constructor(
-                'tag:yaml.org,2002:omap',
-                Constructor.construct_yaml_omap)
-
-        Constructor.add_constructor(
-                'tag:yaml.org,2002:pairs',
-                Constructor.construct_yaml_pairs)
-
-        Constructor.add_constructor(
-                'tag:yaml.org,2002:set',
-                Constructor.construct_yaml_set)
-
-        Constructor.add_constructor(
-                'tag:yaml.org,2002:seq',
-                Constructor.construct_yaml_seq)
-
-        Constructor.add_constructor(
-                'tag:yaml.org,2002:map',
-                Constructor.construct_yaml_map)
-
-        # Constructor.add_constructor(null,
-        #         Constructor.construct_undefined)
+        for godot_type in ("Vector2 Vector2i Vector3 Vector3i Vector4 Vector4i" + ' ' +\
+        "StringName Color Rect2 Rect2i Basis Transform2D Transform3D Quaternion AABB NodePath" + ' ' +\
+        "Projection Plane PackedByteArray PackedColorArray PackedFloat32Array PackedFloat64Array" + ' ' +\
+        "PackedInt32Array PackedInt64Array PackedStringArray PackedVector2Array PackedVector3Array PackedVector4Array").split(' '):
+            Constructor.add_constructor("!%s" % godot_type,
+            Constructor["construct_godot_%s" % godot_type])
 
     func check_data():
         # If there are more documents available?
@@ -2743,8 +2727,8 @@ class Constructor:
         deep_construct = false
         return data
 
+    # NOTE: The 'deep' parameter currently has no effect.
     static func construct_object(node, deep=false):
-        print(node.type, " m ", node.start_mark == null)
         var old_deep
         if node in constructed_objects:
             return constructed_objects[node]
@@ -2845,7 +2829,7 @@ class Constructor:
     #         pairs.append([key, value])
     #     return pairs
 
-    static func add_constructor(tag :String, constructor :Callable):
+    static func add_constructor(tag, constructor :Callable):
         yaml_constructors[tag] = constructor
 
     static func add_multi_constructor(tag_prefix, multi_constructor):
@@ -3041,21 +3025,216 @@ class Constructor:
         data.merge(construct_mapping(node), true)
         return data
 
-    # func construct_yaml_object(node, cls):
-    #     data = cls.__new__(cls)
-    #     yield data
-    #     if hasattr(data, '__setstate__'):
-    #         state = construct_mapping(node, deep=true)
-    #         data.__setstate__(state)
-    #     else:
-    #         state = construct_mapping(node)
-    #         data.__dict__.update(state)
+    static func construct_undefined(node):
+        SGYPaser.error("could not determine a constructor for the tag %s" % node.tag,
+                node.start_mark)
 
-    # static func construct_undefined(node):
-    #     SGYPaser.error("could not determine a constructor for the tag %s" % node.tag,
-    #             node.start_mark)
 
-# Dump Part
+    static func construct_godot_object(node, cls, deserialize):
+        var data = cls.new()
+        recursive_objects[node] = data
+        var state = construct_mapping(node, true)
+        if not deserialize.is_empty() and data.has_method(deserialize):
+            data[deserialize].call(state)
+        else:
+            var instance_property_list = data.get_property_list().map(func(dict): return dict.name)
+            var sml = cls.get_script_method_list()
+            var _init_args_names = sml.get(sml.find_custom(func(dict): return dict.name == "_init")).args.map(func(dict): return dict.name)
+            for key in _init_args_names:
+                if key.trim_prefix("p_") in instance_property_list:
+                    data.set(key.trim_prefix("p_"), state[key.trim_prefix("p_")])
+                else:
+                    SGYPaser.error("while constructing a godot object",
+                                    node.start_mark,
+                                    "key: %s is not in the instance_property_list" % key)
+        return data
+
+    static func construct_godot_Vector2(node):
+        var args_dict = construct_mapping(node)
+        return Vector2(args_dict.x, args_dict.y)
+
+    static func construct_godot_Vector2i(node):
+        var args_dict = construct_mapping(node)
+        return Vector2i(args_dict.x, args_dict.y)
+
+    static func construct_godot_Vector3(node):
+        var args_dict = construct_mapping(node)
+        return Vector3(args_dict.x, args_dict.y, args_dict.z)
+
+    static func construct_godot_Vector3i(node):
+        var args_dict = construct_mapping(node)
+        return Vector3i(args_dict.x, args_dict.y, args_dict.z)
+
+    static func construct_godot_Vector4(node):
+        var args_dict = construct_mapping(node)
+        return Vector4(args_dict.x, args_dict.y, args_dict.z, args_dict.w)
+
+    static func construct_godot_Vector4i(node):
+        var args_dict = construct_mapping(node)
+        return Vector4i(args_dict.x, args_dict.y, args_dict.z, args_dict.w)
+
+    static func construct_godot_StringName(node):
+        return StringName(construct_scalar(node))
+
+    static func construct_godot_Color(node):
+        return Color(construct_scalar(node))
+
+    static func construct_godot_Rect2(node):
+        var args_dict = construct_mapping(node)
+        if args_dict.position is Vector2 and args_dict.size is Vector2:
+            return Rect2(args_dict.position, args_dict.size)
+        else:
+            var position = args_dict.position
+            var size = args_dict.size
+            return Rect2(Vector2(position.x, position.y), Vector2(size.x, size.y))
+
+    static func construct_godot_Rect2i(node):
+        var args_dict = construct_mapping(node)
+        if args_dict.position is Vector2i and args_dict.size is Vector2i:
+            return Rect2i(args_dict.position, args_dict.size)
+        else:
+            var position = args_dict.position
+            var size = args_dict.size
+            return Rect2i(Vector2i(position.x, position.y), Vector2i(size.x, size.y))
+
+    static func construct_godot_Basis(node):
+        var args_dict = construct_mapping(node)
+        if args_dict.keys().all(func(k): args_dict[k] is Vector3):
+            return Basis(args_dict.x, args_dict.y, args_dict.z)
+        else:
+            var data = Basis()
+            for key in "x y z".split(' '):
+                data[key] = Vector3(args_dict[key].x, args_dict[key].y, args_dict[key].z)
+            return data
+
+    static func construct_godot_Transform2D(node):
+        var args_dict = construct_mapping(node)
+        if args_dict.keys().all(func(k): args_dict[k] is Vector2):
+            return Transform2D(args_dict.x, args_dict.y, args_dict.origin)
+        else:
+            var data = Transform2D()
+            for key in "x y origin".split(' '):
+                data[key] = Vector2(args_dict[key].x, args_dict[key].y)
+            return data
+
+    static func construct_godot_Transform3D(node):
+        var args_dict = construct_mapping(node)
+        if args_dict.basis is Basis and args_dict.origin is Vector3:
+            return Transform3D(args_dict.basis, args_dict.origin)
+        else:
+            var basis_x = Vector3(args_dict.basis.x.x, args_dict.basis.x.y, args_dict.basis.x.z)
+            var basis_y = Vector3(args_dict.basis.y.x, args_dict.basis.y.y, args_dict.basis.y.z)
+            var basis_z = Vector3(args_dict.basis.z.x, args_dict.basis.z.y, args_dict.basis.z.z)
+            var basis = Basis(basis_x, basis_y, basis_z)
+            var origin = Vector3(args_dict.origin.x, args_dict.origin.y, args_dict.origin.z)
+            return Transform3D(basis, origin)
+
+    static func construct_godot_Quaternion(node):
+        var args_dict = construct_mapping(node)
+        return Quaternion(args_dict.x, args_dict.y, args_dict.z, args_dict.w)
+
+    static func construct_godot_AABB(node):
+        var args_dict = construct_mapping(node)
+        if args_dict.position is Vector3 and args_dict.size is Vector3:
+            return AABB(args_dict.position, args_dict.size)
+        else:
+            var position = Vector3(args_dict.position.x, args_dict.position.y, args_dict.position.z)
+            var size = Vector3(args_dict.size.x, args_dict.size.y, args_dict.size.z)
+            return AABB(position, size)
+
+    static func construct_godot_NodePath(node):
+        return NodePath(construct_scalar(node))
+
+    static func construct_godot_Plane(node):
+        var args_dict = construct_mapping(node)
+        if args_dict.normal is Vector3 and args_dict.d is float:
+            return Plane(args_dict.normal, args_dict.d)
+        else:
+            var normal = Vector3(args_dict.normal.x, args_dict.normal.y, args_dict.normal.z)
+            return Plane(normal, args_dict.d)
+
+    static func construct_godot_Projection(node):
+        var args_dict = construct_mapping(node)
+        if args_dict.keys().all(func(k): args_dict[k] is Vector4):
+            return Projection(args_dict.x, args_dict.y, args_dict.z, args_dict.w)
+        else:
+            var data = Projection()
+            for key in "x y z w".split(' '):
+                data[key] = Vector4(args_dict[key].x, args_dict[key].y, args_dict[key].z, args_dict[key].w)
+            return data
+
+    static func construct_godot_PackedByteArray(node):
+        return construct_yaml_binary(node)
+
+    static func construct_godot_PackedColorArray(node):
+        var data = PackedColorArray()
+        for color_code in construct_sequence(node):
+            data.append(Color(color_code))
+        return data
+
+    static func construct_godot_PackedFloat32Array(node):
+        var data = PackedFloat32Array()
+        for float32 in construct_sequence(node):
+            data.append(float(float32))
+        return data
+
+    static func construct_godot_PackedFloat64Array(node):
+        var data = PackedFloat64Array()
+        for float64 in construct_sequence(node):
+            data.append(float(float64))
+        return data
+
+    static func construct_godot_PackedInt32Array(node):
+        var data = PackedInt32Array()
+        for int32 in construct_sequence(node):
+            data.append(int(int32))
+        return data
+
+    static func construct_godot_PackedInt64Array(node):
+        var data = PackedInt64Array()
+        for int64 in construct_sequence(node):
+            data.append(int(int64))
+        return data
+
+    static func construct_godot_PackedStringArray(node):
+        var data = PackedStringArray()
+        for string in construct_sequence(node):
+            data.append(string)
+        return data
+
+    static func construct_godot_PackedVector2Array(node):
+        var data = PackedVector2Array()
+        for vector2 in construct_sequence(node):
+            data.append(Vector2(vector2.x, vector2.y))
+        return data
+
+    static func construct_godot_PackedVector3Array(node):
+        var data = PackedVector3Array()
+        for vector3 in construct_sequence(node):
+            data.append(Vector3(vector3.x, vector3.y, vector3.z))
+        return data
+
+    static func construct_godot_PackedVector4Array(node):
+        var data = PackedVector4Array()
+        for vector4 in construct_sequence(node):
+            data.append(Vector4(vector4.x, vector4.y, vector4.z, vector4.w))
+        return data
+
+
+############################################################
+#                                                          #
+#   Dump Part                              ┌────────────┐  #
+#  ───────────                             │ Serializer │  #
+#                  ┌───────────┐ YAMLNode  │┌──────────┐│  #
+#   Variant ──────►│Representer│──────────►││ Resolver ││  #
+#                  └───────────┘           │└──────────┘│  #
+#                                          └────────────┘  #
+#                                                 │        #
+#                              ┌───────┐  Event   │        #
+#   String ◄───────────────────│Emitter│◄─────────┘        #
+#                              └───────┘                   #
+#                                                          #
+############################################################
 
 class Representer:
 
@@ -3080,6 +3259,9 @@ class Representer:
                 Representer.represent_null)
 
         Representer.add_representer("String",
+                Representer.represent_str)
+
+        Representer.add_representer("StringName",
                 Representer.represent_str)
 
         Representer.add_representer("PackedByteArray",
@@ -3116,6 +3298,11 @@ class Representer:
                 Representer.represent_undefined)
 
 
+        for godot_type in ("Vector2 Vector2i Vector3 Vector3i Vector4 Vector4i" + ' ' +\
+        "StringName Color").split(' '):
+            Representer.add_representer(godot_type,
+                    Representer["represent_godot_%s" % godot_type.to_lower()])
+
     static func represent(data):
         var node = represent_data(data)
         Serializer.serialize(node)
@@ -3135,7 +3322,8 @@ class Representer:
             object_keeper.append(data)
 
         var node
-        var data_type = type_string(typeof(data)) if type_string(typeof(data)) != "Object" else data.get_class()
+        var data_type = type_string(typeof(data)) if type_string(typeof(data)) != "Object" else \
+            data.get_script().get_global_name() if data.get_script()!=null else data.get_class()
         if data_type in yaml_representers:
             node = yaml_representers[data_type].call(data)
         elif null in yaml_multi_representers:
@@ -3254,6 +3442,48 @@ class Representer:
 
     static func represent_undefined(data):
         SGYPaser.error("cannot represent an object", data)
+
+
+    static func represent_godot_object(data, tag, serialize):
+        if not serialize.is_empty() and data.has_method(serialize):
+            return represent_mapping(tag, data.serialize())
+        else:
+            var _init_args_dict = {}
+            var instance_property_list = data.get_property_list().map(func(dict): return dict.name)
+            var sml = data.get_script().get_script_method_list()
+            var _init_args_names = sml.get(sml.find_custom(func(dict): return dict.name == "_init")).args.map(func(dict): return dict.name)
+            for key in _init_args_names:
+                if key.trim_prefix("p_") in instance_property_list:
+                    _init_args_dict.set(key.trim_prefix("p_"), data[key.trim_prefix("p_")])
+                else:
+                    SGYPaser.error("while representing a godot object",
+                                    data,
+                                    "key: %s is not in the instance_property_list" % key)
+            return represent_mapping(tag, _init_args_dict)
+
+    static func represent_godot_vector2(data):
+        return represent_mapping('!Vector2', {x=data.x, y=data.y}, true)
+
+    static func represent_godot_vector2i(data):
+        return represent_mapping('!Vector2i', {x=data.x, y=data.y}, true)
+
+    static func represent_godot_vector3(data):
+        return represent_mapping('!Vector3', {x=data.x, y=data.y, z=data.z}, true)
+
+    static func represent_godot_vector3i(data):
+        return represent_mapping('!Vector3i', {x=data.x, y=data.y, z=data.z}, true)
+
+    static func represent_godot_vector4(data):
+        return represent_mapping('!Vector4', {x=data.x, y=data.y, z=data.z, w=data.w}, true)
+
+    static func represent_godot_vector4i(data):
+        return represent_mapping('!Vector4i', {x=data.x, y=data.y, z=data.z, w=data.w}, true)
+
+    static func represent_godot_stringname(data):
+        return represent_scalar('tag:yaml.org,2002:str', str(data))
+
+    static func represent_godot_color(data):
+        return represent_scalar('!Color', data.to_html())
 
 class Serializer:
     const ANCHOR_TEMPLATE = 'id%03d'
