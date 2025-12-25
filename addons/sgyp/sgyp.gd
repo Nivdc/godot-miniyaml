@@ -2606,7 +2606,8 @@ class Resolver:
             if current_node.tag != node_check:
                 return
         elif node_check != null:
-            assert(false, "This should not happend, pls report")
+            #FIXME, this will never happen unless you want to use add_path_resolver.
+            assert(false)
         #     if not isinstance(current_node, node_check):
         #         return
         if index_check == true and current_index != null:
@@ -3299,9 +3300,11 @@ class Representer:
 
 
         for godot_type in ("Vector2 Vector2i Vector3 Vector3i Vector4 Vector4i" + ' ' +\
-        "StringName Color").split(' '):
+        "StringName Color Rect2 Rect2i Basis Transform2D Transform3D Quaternion AABB NodePath" + ' ' +\
+        "Projection Plane PackedByteArray PackedColorArray PackedFloat32Array PackedFloat64Array" + ' ' +\
+        "PackedInt32Array PackedInt64Array PackedStringArray PackedVector2Array PackedVector3Array PackedVector4Array").split(' '):
             Representer.add_representer(godot_type,
-                    Representer["represent_godot_%s" % godot_type.to_lower()])
+                    Representer["represent_godot_%s" % godot_type])
 
     static func represent(data):
         var node = represent_data(data)
@@ -3350,7 +3353,7 @@ class Representer:
 
     static func represent_sequence(tag, sequence, p_flow_style=null):
         var value = []
-        var node = YAMLNode.new("SEQUENCE", tag, value, false)
+        var node = YAMLNode.new("SEQUENCE", tag, value, false) # is_flow_style=false
         if alias_key != null:
             represented_objects[alias_key] = node
         var best_style = true
@@ -3371,7 +3374,7 @@ class Representer:
 
     static func represent_mapping(tag, mapping, p_flow_style=null):
         var value = []
-        var node = YAMLNode.new("MAPPING", tag, value, false)
+        var node = YAMLNode.new("MAPPING", tag, value, false) # is_flow_style=false
         if alias_key != null:
             represented_objects[alias_key] = node
         var best_style = true
@@ -3461,29 +3464,89 @@ class Representer:
                                     "key: %s is not in the instance_property_list" % key)
             return represent_mapping(tag, _init_args_dict)
 
-    static func represent_godot_vector2(data):
+    static func represent_godot_Vector2(data):
         return represent_mapping('!Vector2', {x=data.x, y=data.y}, true)
 
-    static func represent_godot_vector2i(data):
+    static func represent_godot_Vector2i(data):
         return represent_mapping('!Vector2i', {x=data.x, y=data.y}, true)
 
-    static func represent_godot_vector3(data):
+    static func represent_godot_Vector3(data):
         return represent_mapping('!Vector3', {x=data.x, y=data.y, z=data.z}, true)
 
-    static func represent_godot_vector3i(data):
+    static func represent_godot_Vector3i(data):
         return represent_mapping('!Vector3i', {x=data.x, y=data.y, z=data.z}, true)
 
-    static func represent_godot_vector4(data):
+    static func represent_godot_Vector4(data):
         return represent_mapping('!Vector4', {x=data.x, y=data.y, z=data.z, w=data.w}, true)
 
-    static func represent_godot_vector4i(data):
+    static func represent_godot_Vector4i(data):
         return represent_mapping('!Vector4i', {x=data.x, y=data.y, z=data.z, w=data.w}, true)
 
-    static func represent_godot_stringname(data):
+    static func represent_godot_StringName(data):
         return represent_scalar('tag:yaml.org,2002:str', str(data))
 
-    static func represent_godot_color(data):
+    static func represent_godot_Color(data):
         return represent_scalar('!Color', data.to_html())
+
+    static func represent_godot_Rect2(data):
+        return represent_mapping('!Rect2', {position=data.position, size=data.size})
+
+    static func represent_godot_Rect2i(data):
+        return represent_mapping('!Rect2i', {position=data.position, size=data.size})
+
+    static func represent_godot_Basis(data):
+        return represent_mapping('!Basis', {x=data.x, y=data.y, z=data.z})
+
+    static func represent_godot_Transform2D(data):
+        return represent_mapping('!Transform2D', {x=data.x, y=data.y, origin=data.origin})
+
+    static func represent_godot_Transform3D(data):
+        return represent_mapping('!Transform3D', {basis=data.basis, origin=data.origin})
+
+    static func represent_godot_Quaternion(data):
+        return represent_mapping('!Quaternion', {x=data.x, y=data.y, z=data.z, w=data.w}, true)
+
+    static func represent_godot_AABB(data):
+        return represent_mapping('!AABB', {position=data.position, size=data.size})
+
+    static func represent_godot_NodePath(data):
+        return represent_scalar('!NodePath', str(data))
+
+    static func represent_godot_Projection(data):
+        return represent_mapping('!Projection', {x=data.x, y=data.y, z=data.z, w=data.w})
+
+    static func represent_godot_Plane(data):
+        return represent_mapping('!Plane', {normal=data.normal, d=data.d})
+
+    static func represent_godot_PackedByteArray(data):
+        return represent_scalar('!PackedByteArray', Marshalls.raw_to_base64(data), '|')
+
+    static func represent_godot_PackedColorArray(data):
+        return represent_sequence('!PackedColorArray', data)
+
+    static func represent_godot_PackedFloat32Array(data):
+        return represent_sequence('!PackedFloat32Array', data)
+
+    static func represent_godot_PackedFloat64Array(data):
+        return represent_sequence('!PackedFloat64Array', data)
+
+    static func represent_godot_PackedInt32Array(data):
+        return represent_sequence('!PackedInt32Array', data)
+
+    static func represent_godot_PackedInt64Array(data):
+        return represent_sequence('!PackedInt64Array', data)
+
+    static func represent_godot_PackedStringArray(data):
+        return represent_sequence('!PackedStringArray', data)
+
+    static func represent_godot_PackedVector2Array(data):
+        return represent_sequence('!PackedVector2Array', data)
+
+    static func represent_godot_PackedVector3Array(data):
+        return represent_sequence('!PackedVector3Array', data)
+
+    static func represent_godot_PackedVector4Array(data):
+        return represent_sequence('!PackedVector4Array', data)
 
 class Serializer:
     const ANCHOR_TEMPLATE = 'id%03d'
