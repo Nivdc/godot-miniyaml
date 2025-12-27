@@ -25,7 +25,7 @@ If you want a more stable plugin, you should try it.
 Requires godot **4.5** or higher.  
 Porting it to an older version of godot is entirely possible, but I want to try out some new features while porting this plugin. So... that's it.
 
-- You can use it simply by downloading the `addons.zip` file from the Releases page and then extracting it to your project folder.  
+- You can use it simply by [downloading](https://github.com/Nivdc/godot-miniyaml/releases/download/v0.1.0/addons.zip) the `addons.zip` file from the Releases page and then extracting it to your project folder.  
 - Or, you can download this Git repository and copy the `addons` folder into your project.  
 **Just remember to replace `soft_assert` with `assert` on line 130 of `miniyaml.gd`.**
 - Or, you can directly download `addons/miniyaml/miniyaml.gd` to your project and then use it like an autoloaded singleton class.  
