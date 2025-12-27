@@ -112,5 +112,5 @@ Of the remaining 13 new errors,
 - `565N` failed because we converted the `binary` to `PackedByteArray`.  
 - `S4JQ` and `3GZX` are due to errors that already existed in PyYAML.  
 - The remaining 10 tests (`C4HZ`,`UGM3`,`CUP7`,`P76L`,`CC74`,`Z9M4`,`7FWL`,`6CK3`,`M5C3`,`Z67P`) all contain unknown tags; These tests should be considered errors for the `Constructor`.  
-
-Oh, by the way, the error file indicator in YAML Test Suite only applies to event tests, not JSON tests.
+  Oh, by the way, the error file indicator in YAML Test Suite only applies to event tests, not JSON tests.  
+  Therefore, I believe these tests should be considered passed.  
