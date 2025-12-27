@@ -13,7 +13,7 @@ MiniYAML is a GDScript port of [PyYAML](https://github.com/yaml/pyyaml), It also
 "Mini" refers to both file size and structure; it's a single-script plugin.
 
 And you can even use the underscore `_` in numbers!  
-Just like you use in GDScript. AWEOSOME! 😎
+Just like you use in GDScript. AWESOME! 😎
 
 I may have made quite a few mistakes during the porting process and didn't leave enough documentation.  
 If you have any questions or find any bugs, you can open an issue and ask me directly.
