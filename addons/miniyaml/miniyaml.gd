@@ -105,7 +105,7 @@ func load_all(yaml_string):
     while constructor.check_data():
         result.append(constructor.get_data())
     if not has_error():
-        return result if result.size() > 1 else result[0]
+        return result if result.size()>1 or result.is_empty() else result[0]
     else:
         return null
 
@@ -1730,9 +1730,15 @@ class Scanner:
 
     func scan_line_break():
         var ch = peek()
-        if ch == '\n':
-            forward()
+        if ch in '\r\n\u0085':
+            if self.prefix(2) == '\r\n':
+                self.forward(2)
+            else:
+                self.forward()
             return '\n'
+        # elif ch in '\u2028\u2029':
+        #     self.forward()
+        #     return ch
         return ''
 
 class Event:
