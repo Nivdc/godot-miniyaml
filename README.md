@@ -67,7 +67,7 @@ For more information, be sure to check out
 
 ## Known issues
 - If you are still using `soft_assert` in your project, you might get stuck in a dangerous infinite loop when loading some faulty files.  
-`soft_assert` is purely for testing purposes; you should use `assert`.
+`soft_assert` is purely for testing purposes; you should use `assert`.  
 Replace it in `miniyaml.gd` line **130**
 
 - Some error report messages are very ugly.  
