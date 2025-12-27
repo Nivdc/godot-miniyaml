@@ -21,8 +21,8 @@
 ##################################################################
 #                                                                #
 #  Author: Nivdc <nivdc@live.com>                                #
-#  Lience: MIT (www.opensource.org/licenses/mit-license.php)     #
-#                                                                #
+#  Lience: MIT (https://opensource.org/licenses/mit-license.php) #
+#  Repository: https://github.com/Nivdc/godot-miniyaml           #
 #                                                                #
 #  Version: 0.1.0                                                #
 #                                                                #
