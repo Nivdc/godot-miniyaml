@@ -10,12 +10,20 @@ config_version=5
 
 [application]
 
-config/name="SGYP Demo"
+config/name="MiniYAML Demo"
 run/main_scene="uid://n4okdw3hw225"
 config/features=PackedStringArray("4.5", "Forward Plus")
-config/icon="res://icon.svg"
+config/icon="uid://b3iufr2mr5yn4"
+
+[autoload]
+
+YAML="*res://addons/miniyaml/miniyaml.gd"
 
 [display]
 
 window/size/viewport_width=1600
 window/size/viewport_height=900
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/miniyaml/plugin.cfg")

@@ -1,0 +1,213 @@
+# Strings
+plain_string: Hello World
+single_quoted_string: 'Hello, ''World'''
+double_quoted_string: "Hello, World!"
+literal_string: |
+  This is a long string
+  that will preserve
+  newlines
+folded_string: >
+  This is a long string
+  that will be folded
+  into a single line
+
+# Integer formats
+integer: 42
+hex: 0xff
+octal: 0o700
+with_: 123_456_789
+binary: 0b1010
+
+# Float formats
+float: 3.14159
+# scientific_notation: 6.022e23 # ❌
+scientific_notation: 6.022e+23  # ✅
+infinity: .inf
+not_a_number: .nan
+
+# Boolean types
+boolean_true: true
+boolean_false: false
+
+# Null
+null_value: null
+null_value_2: ~
+null_value_3: 
+
+# Dates and times are treated as strings
+# They will be dumped as strings.
+canonical: 2001-12-15T02:59:43.1Z
+iso8601: 2001-12-14t21:59:43.10-05:00
+spaced: 2001-12-14 21:59:43.10 -5
+date: 2002-12-14
+
+# Arrays
+fruits:
+  - apple
+  - banana
+  - cherry
+
+nested_array:
+  - - nested
+    - items
+  - - more
+    - nested
+    - items
+
+## Dictionaries
+person:
+  name: John Doe
+  age: 30
+  occupation: Developer
+
+# Flow style array
+flow_style_array: [1, 2, 3, 4, 5]
+
+# Flow style dictionary
+flow_style_dict: {key1: value1, key2: value2, key3: 124.5}
+
+# Nested flow array
+nested_flow_style_array: ["hello", 10, {foo: bar}, [4.20, 6.9]]
+
+# Nested flow dictionary
+nested_flow_style_dictionary: { key1: {foo: 'bar'}, key2: [4.20, 6.9] }
+
+# Anchors and aliases get resolved during parsing
+# Note that anchors may not remain unchanged after the dump.
+anchor_example: &anchor_name
+  key1: value1
+  key2: value2
+
+alias_example: *anchor_name
+
+# Merge keys are also resolved during parsing
+base: &base
+  name: John Doe
+  age: 30
+
+merge_example:
+  <<: *base
+  occupation: Developer
+
+# Binary data - !!binary is converted to !PackedByteArray
+binary_data: !!binary |
+  R0lGODlhDAAMAIQAAP//9/X17unp5WZmZgAAAOfn515eXvPz7Y6OjuDg4J+fn5
+  OTk6enp56enmleECcgggoBADs=
+
+# The following three types can be loaded correctly, but cannot be dumped.
+# 
+# # Sets are represented as a
+# # Mapping where each key is
+# # associated with a null value
+# set: !!set
+#   ? Mark McGwire
+#   ? Sammy Sosa
+#   ? Ken Griffey
+# 
+# # Ordered maps are represented as
+# # A sequence of mappings, with
+# # each mapping having one key
+# omap: !!omap
+#   - Mark McGwire: 65
+#   - Sammy Sosa: 63
+#   - Ken Griffey: 58
+# 
+# # Pairs is similar to omap, but allows duplicate keys.
+# pairs: !!pairs
+#   - Mark McGwire: 65
+#   - Sammy Sosa: 63
+#   - Ken Griffey: 58
+#   - Ken Griffey: 58
+
+# Custom tags are preserved, and can describe Godot Variants,
+# and classes registered using YAML.register_class()
+game_object: &self !MyCustomClass 
+  self_ref: *self
+  alias: "Hero"
+  health: 100
+  color: !Color ffffffff
+
+# Variants
+AABB: !AABB
+  position: {x: 1,y: 2,z: 4}
+  size: {x: 8,y: 16,z: 32}
+Basis: !Basis
+  x: {x: 1,y: 2,z: 4}
+  y: {x: 8,y: 16,z: 32}
+  z: {x: 64,y: 128,z: 256}
+Color: !Color ff804080
+NodePath: !NodePath "root/level/player"
+PackedByteArray: !PackedByteArray |
+  AQIECA==
+PackedColorArray: !PackedColorArray
+  - ff0000
+  - 00ff00
+  - 0000ff
+  - red
+  - green
+  - blue
+PackedFloat32Array: !PackedFloat32Array
+  - 3.1415927
+  - 6.2831855
+  - 12.566371
+PackedFloat64Array: !PackedFloat64Array
+  - 3.141592653589793
+  - 6.283185307179586
+  - 12.566370614359172
+PackedInt32Array: !PackedInt32Array
+  - 1
+  - 2
+  - 4
+  - 8
+PackedInt64Array: !PackedInt64Array
+  - 1
+  - 2
+  - 4
+  - 8
+PackedStringArray: !PackedStringArray
+  - "one"
+  - "one\ntwo"
+  - "one\ntwo\nthree"
+PackedVector2Array: !PackedVector2Array
+  - {x: 1,y: 2}
+  - {x: 4,y: 8}
+PackedVector3Array: !PackedVector3Array
+  - {x: 1,y: 2,z: 4}
+  - {x: 8,y: 16,z: 32}
+PackedVector43Array: !PackedVector4Array
+  - {x: 1,y: 2,z: 4,w: 8}
+  - {x: 16,y: 32,z: 64,w: 128}
+  - {x: 256,y: 512,z: 1024,w: 2048}
+  - {x: 4096,y: 8192,z: 16384,w: 32768}
+Plane: !Plane
+  normal: {x: 1,y: 2,z: 4}
+  d: 3.1415927
+Projection: !Projection
+  x: {x: 1,y: 2,z: 4,w: 8}
+  y: {x: 16,y: 32,z: 64,w: 128}
+  z: {x: 256,y: 512,z: 1024,w: 2048}
+  w: {x: 4096,y: 8192,z: 16384,w: 32768}
+Quaternion: !Quaternion {x: 3.1415927,y: 6.2831855,z: 12.566371,w: 25.132742}
+Rect2: !Rect2
+  position: {x: 1,y: 2}
+  size: {x: 4,y: 8}
+Rect2i: !Rect2i
+  position: {x: 1,y: 2}
+  size: {x: 4,y: 8}
+StringName: !StringName test_string_name # StringName will be dumped as a String.
+Transform2D: !Transform2D
+  x: {x: -1,y: -8.742278e-08}
+  y: {x: 8.742278e-08,y: -1}
+  origin: {x: 6.2831855,y: 12.566371}
+Transform3D: !Transform3D
+  basis:
+    x: {x: 1,y: 0,z: 0}
+    y: {x: 0,y: 1,z: 0}
+    z: {x: 0,y: 0,z: 1}
+  origin: {x: 1,y: 2,z: 4}
+Vector2: !Vector2 {x: 1,y: 2}
+Vector2i: !Vector2i {x: 2,y: 4}
+Vector3: !Vector3 {x: 1,y: 2,z: 4}
+Vector3i: !Vector3i {x: 2,y: 4,z: 8}
+Vector4: !Vector4 {x: 1,y: 2,z: 4,w: 8}
+Vector4i: !Vector4i {x: 2,y: 4,z: 8,w: 16}

@@ -1,12 +1,50 @@
+##################################################################
+#                                                                #
+#                #            #                                  #
+#  ###     ###                                                   #
+#  #  #    # #   #   ######   #                                  #
+#  #  #   #  #   #   #    #   #                                  #
+#  #   # #   #   #   #    #   #                                  #
+#  #    #    #   #   #    #   #                                  #
+#                                                                #
+#                                                                #
+#  ####      ####     ###        ####         ####    ####       #
+#   ####    ####     #####       #####       #####    ####       #
+#    ####  ####     ### ###      ######     ######    ####       #
+#     ########     ###   ###     ### ###    ######    ####       #
+#      ######      ###   ###     ### ###   ### ###    ####       #
+#       ####      ###     ###    ###  ###  ##  ###    ####       #
+#       ####     #############   ###  ### ###  ###    ####       #
+#       ####     ###       ###   ###   #####   ###    ####       #
+#       ####    ###         ###  ###    ###    ###    #########  #
+#                                                                #
+##################################################################
+#                                                                #
+#  Author: Nivdc <nivdc@live.com>                                #
+#  Lience: MIT (www.opensource.org/licenses/mit-license.php)     #
+#                                                                #
+#                                                                #
+#  Version: 0.1.0                                                #
+#                                                                #
+#  NOTE: This version is not a stable version,                   #
+#        and the code quality is far from optimal.               #
+#                                                                #
+#        You might find ugly monsters hiding in the code.        #
+#        🏃Take care of yourself!🦖                              #
+#                                                                #
+##################################################################
+
+
 @static_unload
 # This annotation will not take effect due to an engine bug,
-# but even so it should not cause any problems, SGYP does not use a lot of memory.
+# but even so it should not cause any problems, MiniYAML does not use a lot of memory.
 # for more detail: https://docs.godotengine.org/en/stable/classes/class_@gdscript.html#class-gdscript-annotation-static-unload
 
-class_name SGYPaser extends Node
-# class_name SGYPaser extends RefCounted
-# # You can use SGYP like a normal class, 
-# # but the plugin form allows you to decide whether to enable SGYP.
+extends Node
+# class_name YAML extends RefCounted
+# # You can replace this comment, and use MiniYAML as an autoloaded singleton class.
+# # Or you can use it as a normal class, just remember you should NOT create multiple YAML instances, 
+# # as this can cause errors in the objects registered to the Representer and Constructor.
 
 class YAMLResult:
     var data
@@ -28,42 +66,145 @@ class YAMLResult:
     func get_error(index=0):
         return errors[index]
 
-
-static var errors :Array[String]
+var errors :Array[String]
+var representer := Representer.new()
+var constructor := Constructor.new()
 
 func _init():
     errors = []
     Resolver.init_yaml_implicit_resolvers()
-    Constructor.init_yaml_constructors()
-    Representer.init_yaml_representers()
-    Serializer.set_up()
-    Emitter.set_up()
+    representer.error_occurred.connect(error)
+    constructor.error_occurred.connect(error)
 
-static func parse(yaml_string) -> YAMLResult:
+
+func parse(yaml_string) -> YAMLResult:
     return YAMLResult.new(load_all(yaml_string), errors)
 
-static func load(yaml_string) -> Variant:
+func load(yaml_string) -> Variant:
     errors = []
-    var result = Constructor.new(Composer.new(Parser.new(Scanner.new(yaml_string)))).get_single_data()
-    return result
+    var scanner  = Scanner.new(yaml_string)
+    var parser   = Parser.new(scanner)
+    var composer = Composer.new(parser)
+    scanner.error_occurred.connect(error)
+    parser.error_occurred.connect(error)
+    composer.error_occurred.connect(error)
+    constructor.composer = composer
+    var result = constructor.get_single_data()
+    return result if not has_error() else null
 
-static func load_all(yaml_string):
+func load_all(yaml_string):
     errors = []
-    var constructor = Constructor.new(Composer.new(Parser.new(Scanner.new(yaml_string))))
+    var scanner  = Scanner.new(yaml_string)
+    var parser   = Parser.new(scanner)
+    var composer = Composer.new(parser)
+    scanner.error_occurred.connect(error)
+    parser.error_occurred.connect(error)
+    composer.error_occurred.connect(error)
+    constructor.composer = composer
     var result = []
     while constructor.check_data():
         result.append(constructor.get_data())
-    return result if result.size() > 1 else result[0]
+    if not has_error():
+        return result if result.size() > 1 else result[0]
+    else:
+        return null
 
-static func dump(p_var:Variant) -> String:
+func dump(p_var:Variant) -> String:
     errors = []
-    Emitter.stream = StreamWrapper.new()
-    Representer.represent(p_var)
-    return Emitter.stream.cache
+    var emitter    = Emitter.new()
+    var serializer = Serializer.new()
+    emitter.error_occurred.connect(error)
+    serializer.error_occurred.connect(error)
+    representer.root_node_emerged.connect(serializer.serialize)
+    serializer.event_emerged.connect(emitter.emit)
+    representer.represent(p_var)
+    return emitter.stream.cache
 
-static func parse_to_events(yaml_string :String):
+func soft_assert(condition: bool, message: String = "Soft assertion failed"):
+    if not condition: push_error("MiniYAML Error: \n" + message)
+
+func error(messages):
+    var mes = '\n'.join(messages) if messages is Array else messages
+    # I strongly recommend that you replace soft_assert with the actual assert.
+    # Unless you are testing purposes or genuinely want to use a faulty YAML file.
+    soft_assert(false, mes)
+    # assert(false, "MiniYAML Error: \n" + mes)
+    errors.append(mes)
+
+func warn(message: String = "Something is wrong"):
+    push_warning("MiniYAML Warning: " + message)
+
+func has_error() -> bool:
+    return not errors.is_empty()
+
+func load_file(path):
+    Mark.source_name = path
+    var data = load_all(FileAccess.open(path, FileAccess.READ).get_as_text())
+    Mark.source_name = "<String>"
+    return data
+
+func save_file(data, path):
+    return FileAccess.open(path, FileAccess.WRITE).store_string(dump(data))
+
+# FIXME, The custom tag feature has not been tested and may not work properly.
+func register_class(p_class:Script, p_serialize="", p_deserialize="", p_tag=""):
+    var class_global_name = p_class.get_global_name()
+    var script_method_name_list = p_class.get_script_method_list().map(func(dict): return dict.name)
+
+    if class_global_name.is_empty():
+        error("Unable to register class, This class has no global name.")
+    if "_init" not in script_method_name_list:
+        error("Unable to register class %s. Custom classes must have an _init function." % class_global_name)
+    if not p_serialize.is_empty() and p_serialize not in script_method_name_list:
+        error("Unable to register class %s. There is no method named %s" % [class_global_name, p_serialize])
+    if not p_deserialize.is_empty() and p_deserialize not in script_method_name_list:
+        error("Unable to register class %s. There is no method named %s" % [class_global_name, p_deserialize])
+
+    if has_error(): return
+
+    p_tag = class_global_name if p_tag.is_empty() else p_tag
+    p_tag = '!'+p_tag
+    if p_tag in Constructor.yaml_constructors.keys() or \
+        class_global_name in Representer.yaml_representers.keys():
+        error("Unable to register class %s, Please do not register repeatedly." % class_global_name)
+
+    if has_error(): return
+
+    constructor.add_constructor(p_tag, constructor.construct_godot_object.bind(p_class, p_deserialize))
+    representer.add_representer(class_global_name, representer.represent_godot_object.bind(p_tag, p_serialize))
+
+# FIXME, The custom tag feature has not been tested and may not work properly.
+func unregister_class(p_class:Script, p_tag=""):
+    var class_global_name = p_class.get_global_name()
+    if class_global_name.is_empty():
+        error("Unable to unregister class, This class has no global name.")
+
+    var builtin_type = (
+        "null bool int float str binary timestamp omap pairs set seq map "
+        + "Vector2 Vector2i Vector3 Vector3i Vector4 Vector4i "
+        + "StringName Color Rect2 Rect2i Basis Transform2D Transform3D Quaternion AABB NodePath "
+        + "Projection Plane PackedByteArray PackedColorArray PackedFloat32Array PackedFloat64Array "
+        + "PackedInt32Array PackedInt64Array PackedStringArray PackedVector2Array PackedVector3Array PackedVector4Array"
+    ).split(" ")
+
+    if class_global_name in builtin_type or\
+    (not p_tag.is_empty() and p_tag in builtin_type):
+        error("Unable to unregister builtin_type")
+
+    p_tag = class_global_name if p_tag.is_empty() else p_tag
+    p_tag = '!'+p_tag
+
+    if has_error(): return
+
+    constructor.yaml_constructors.erase(p_tag)
+    representer.yaml_representers.erase(class_global_name)
+
+func parse_to_events(yaml_string :String):
     errors = []
-    var parser = Parser.new(Scanner.new(yaml_string))
+    var scanner = Scanner.new(yaml_string)
+    var parser = Parser.new(scanner)
+    scanner.error_occurred.connect(error)
+    parser.error_occurred.connect(error)
     var events = parser.parse_to_events()
     var short_events = []
     for e in events:
@@ -97,43 +238,9 @@ static func parse_to_events(yaml_string :String):
                 var anchor  = '' if e.anchor == null or e.anchor.is_empty() else '&%s ' % e.anchor
                 var style   = ':' if e.style == null else e.style
                 var value   = e.value.replace("\\", "\\\\").replace("\n", r"\n").replace("\t", r"\t")
-                 # test 2EBW require single '\' print as '\\', but the real value should be '\', right?
+                 # Some tests require outputting the converted string, such as 2EBW
                 short_events.append("=VAL %s%s%s%s" % [anchor, tag, style, value])
     return ('\n'.join(short_events)) + '\n'
-
-static func soft_assert(condition: bool, message: String = "Soft assertion failed"):
-    if not condition: push_error("SGYP Error: \n" + message)
-
-static func error(...messages):
-    var mes = '\n'.join(messages)
-    soft_assert(false, mes)
-    errors.append(mes)
-
-static func warn(message: String = "Something is wrong"):
-    push_warning("SGYP Warning: " + message)
-
-static func has_error() -> bool:
-    return not errors.is_empty()
-
-static func register_class(p_class:Script, p_serialize="", p_deserialize="", p_tag=""):
-    var class_global_name = p_class.get_global_name()
-    var script_method_list = p_class.get_script_method_list()
-    var script_method_name_list = script_method_list.map(func(dict): return dict.name)
-    assert("_init" in script_method_name_list)
-
-    if class_global_name.is_empty():
-        SGYPaser.error("Unable to register class")
-    if not p_serialize.is_empty() and p_serialize not in script_method_name_list:
-        SGYPaser.error("Unable to register class %s. There is no method named %s" % [class_global_name, p_serialize])
-    if not p_deserialize.is_empty() and p_deserialize not in script_method_name_list:
-        SGYPaser.error("Unable to register class %s. There is no method named %s" % [class_global_name, p_deserialize])
-
-    p_tag = class_global_name if p_tag.is_empty() else p_tag
-    p_tag = '!'+p_tag
-    #FIXME: check p_tag is a builtin tag or already exist.
-
-    Constructor.add_constructor(p_tag, Constructor.construct_godot_object.bind(p_class, p_deserialize))
-    Representer.add_representer(class_global_name, Representer.represent_godot_object.bind(p_tag, p_serialize))
 
 
 ##############################################################
@@ -174,7 +281,7 @@ class Token:
     # ANCHOR(value)
     # TAG(value)
     # SCALAR(value, plain, style)
-    static var valid_types := [
+    var valid_types := [
         "STREAM_START","STREAM_END",
         "DIRECTIVE",
         "DOCUMENT_START", "DOCUMENT_END",
@@ -277,7 +384,6 @@ class Scanner:
         while length > 0:
             var ch = yaml_string[char_index]
             char_index += 1
-            # In SGYP, we use only one type of newline character '\n', and we convert other types of newline characters to this one.
             if ch == '\n':
                 line_index += 1
                 column_index = 0
@@ -339,24 +445,15 @@ class Scanner:
         get:
             return not done
 
-    # 5.4. Line Break Characters
-    # static var line_breaks = ["\r\n", "\r", "\n"]
-
-    # 5.5. White Space Characters
-    # static var white_space = [" ", "\t"]
-    
-    # # 6.2. Separation Spaces
-    # static var separate_in_line = white_space # [66] s-separate-in-line
-
-    # # 6.6. Comments
-    # static var non_content = line_breaks
-    # static var comment_ends = non_content # [76] b-comment
-
-
     func _init(p_yaml_string:String) -> void:
         yaml_string = p_yaml_string
         yaml_string += "\u0003" # Adding an EOF makes the code simpler.
         fetch_stream_start()
+    
+    signal error_occurred(error_messages)
+    func error(...messages):
+        error_occurred.emit(messages)
+        done = true
 
     # func scan():
     #     yaml_string = convert_line_breaks_to_only_line_break(yaml_string, '\n')
@@ -367,7 +464,7 @@ class Scanner:
     #     return tokens
 
     func check_token(...token_types):
-        while need_more_tokens and not SGYPaser.has_error():
+        while need_more_tokens:
             fetch_more_tokens()
         var current_token = peek_token()
         if not tokens.is_empty() and current_token != null:
@@ -376,13 +473,13 @@ class Scanner:
         return false
 
     func peek_token():
-        while need_more_tokens and not SGYPaser.has_error():
+        while need_more_tokens:
             fetch_more_tokens()
         # Return null if no more tokens.
         return tokens[tokens_taken] if tokens_taken < tokens.size() else null
 
     func get_token():
-        while need_more_tokens and not SGYPaser.has_error():
+        while need_more_tokens:
             fetch_more_tokens()
         var result = null
         if tokens_taken < tokens.size():
@@ -390,7 +487,7 @@ class Scanner:
             tokens_taken += 1
         return result
 
-    # static func convert_line_breaks_to_only_line_break(text :String, only_line_break :String) -> String:
+    # func convert_line_breaks_to_only_line_break(text :String, only_line_break :String) -> String:
     #     # The key here is that we have to treat line_breaks as the same symbol
     #     # So first, We choose a single character line_break as the only_line_break( '\n' )
     #     # Then convert all line_breaks that are not only_line_break to only_line_break
@@ -499,7 +596,7 @@ class Scanner:
             return fetch_plain()
 
         # No? It's an error. Let's produce a nice error message.
-        SGYPaser.error("while scanning for the next token found character %c that cannot start any token %s" % [ch, get_mark()])
+        error("while scanning for the next token found character %c that cannot start any token %s" % [ch, get_mark()])
 
     # Simple keys treatment.
 
@@ -530,7 +627,7 @@ class Scanner:
             if key.line_index != line_index  \
                     or char_index - key.char_index > 1024:
                 if key.required:
-                    SGYPaser.error("while scanning a simple key %s could not find expected ':' %s" 
+                    error("while scanning a simple key %s could not find expected ':' %s" 
                     % [key.mark, get_mark()])
                 possible_simple_keys.erase(level)
 
@@ -565,7 +662,7 @@ class Scanner:
             var key = possible_simple_keys[flow_level]
             
             if key.required:
-                    SGYPaser.error("while scanning a simple key %s could not find expected ':' %s" % [key.mark, get_mark()])
+                    error("while scanning a simple key %s could not find expected ':' %s" % [key.mark, get_mark()])
 
             possible_simple_keys.erase(flow_level)
 
@@ -729,7 +826,7 @@ class Scanner:
 
             # Are we allowed to start a new entry?
             if not allow_simple_key:
-                SGYPaser.error("sequence entries are not allowed here %s" % get_mark())
+                error("sequence entries are not allowed here %s" % get_mark())
 
             # We may need to add BLOCK-SEQUENCE-START.
             if add_indent(column_index):
@@ -737,7 +834,7 @@ class Scanner:
                 tokens.append(Token.new("BLOCK_SEQUENCE_START", mark, mark))
 
         # It's an error for the block entry to occur in the flow context,
-        # but we let the SGYPaser detect this.
+        # but we let the YAML detect this.
         else:
             pass
 
@@ -759,7 +856,7 @@ class Scanner:
 
             # Are we allowed to start a key (not necessary a simple)?
             if not allow_simple_key:
-                SGYPaser.error("mapping keys are not allowed here" % get_mark())
+                error("mapping keys are not allowed here" % get_mark())
 
             # We may need to add BLOCK-MAPPING-START.
             if add_indent(column_index):
@@ -803,18 +900,18 @@ class Scanner:
         else:
             
             # Block context needs additional checks.
-            # (Do we really need them? They will be caught by the SGYPaser
+            # (Do we really need them? They will be caught by the YAML
             # anyway.)
             if flow_level == 0:
 
                 # We are allowed to start a complex value if and only if
                 # we can start a simple key.
                 if not allow_simple_key:
-                    SGYPaser.error("mapping values are not allowed here %s" % get_mark())
+                    error("mapping values are not allowed here %s" % get_mark())
 
             # If this value starts a new block mapping, we need to add
             # BLOCK-MAPPING-START.  It will be detected as an error later by
-            # the SGYPaser.
+            # the YAML.
             if flow_level == 0:
                 if add_indent(column_index):
                     var mark = get_mark()
@@ -1027,13 +1124,13 @@ class Scanner:
             length += 1
             ch = peek(length)
         if not length:
-            SGYPaser.error("while scanning a directive %s expected alphabetic or numeric character, but found %c %s" 
+            error("while scanning a directive %s expected alphabetic or numeric character, but found %c %s" 
             % [start_mark, ch, get_mark()])
         var value = prefix(length)
         forward(length)
         ch = peek()
         if ch not in '\u0003 \r\n':
-            SGYPaser.error("while scanning a directive %s expected alphabetic or numeric character, but found %c %s" 
+            error("while scanning a directive %s expected alphabetic or numeric character, but found %c %s" 
             % [start_mark, ch, get_mark()])
 
         return value
@@ -1044,12 +1141,12 @@ class Scanner:
             forward()
         var major = scan_yaml_directive_number(start_mark)
         if peek() != '.':
-            SGYPaser.error("while scanning YAML directive %s expected a digit or '.', but found %c %s" 
+            error("while scanning YAML directive %s expected a digit or '.', but found %c %s" 
             % [start_mark, peek(), get_mark()])
         forward()
         var minor = scan_yaml_directive_number(start_mark)
         if peek() not in '\u0003 \r\n':
-            SGYPaser.error("while scanning YAML directive %s expected a digit or ' ', but found %c %s" 
+            error("while scanning YAML directive %s expected a digit or ' ', but found %c %s" 
             % [start_mark, peek(), get_mark()])
         return [major, minor]
 
@@ -1057,7 +1154,7 @@ class Scanner:
         # See the specification for details.
         var ch = peek()
         if not ('0' <= ch and ch <= '9'):
-            SGYPaser.error("while scanning YAML directive %s expected a digit, but found %c %s" 
+            error("while scanning YAML directive %s expected a digit, but found %c %s" 
             % [start_mark, peek(), get_mark()])
         var length = 0
         while ('0' <= peek(length) and peek(length) <= '9'):
@@ -1081,7 +1178,7 @@ class Scanner:
         var value = scan_tag_handle('directive', start_mark)
         var ch = peek()
         if ch != ' ':
-            SGYPaser.error("while scanning TAG directive %s expected ' ', but found %c %s" 
+            error("while scanning TAG directive %s expected ' ', but found %c %s" 
             % [start_mark, peek(), get_mark()])
         return value
 
@@ -1090,7 +1187,7 @@ class Scanner:
         var value = scan_tag_uri('directive', start_mark)
         var ch = peek()
         if ch not in '\u0003 \r\n':
-            SGYPaser.error("while scanning TAG directive %s expected ' ', but found %c %s" 
+            error("while scanning TAG directive %s expected ' ', but found %c %s" 
             % [start_mark, peek(), get_mark()])
         return value
 
@@ -1103,7 +1200,7 @@ class Scanner:
                 forward()
         var ch = peek()
         if ch not in '\u0003\r\n':
-            SGYPaser.error("while scanning TAG directive %s expected a comment or a line break, but found %c %s" 
+            error("while scanning TAG directive %s expected a comment or a line break, but found %c %s" 
             % [start_mark, peek(), get_mark()])
         scan_line_break()
 
@@ -1127,13 +1224,13 @@ class Scanner:
             length += 1
             ch = peek(length)
         if length == 0:
-            SGYPaser.error("while scanning an %s %s expected alphabetic or numeric character, but found %c %s"
+            error("while scanning an %s %s expected alphabetic or numeric character, but found %c %s"
                     % [name, start_mark, ch, get_mark()])
         var value = prefix(length)
         forward(length)
         ch = peek()
         if ch not in '\u0003 \t\r\n?:,]}%@`':
-            SGYPaser.error("while scanning an %s %s expected alphabetic or numeric character, but found %c %s"
+            error("while scanning an %s %s expected alphabetic or numeric character, but found %c %s"
                     % [name, start_mark, ch, get_mark()])
 
         var end_mark = get_mark()
@@ -1151,7 +1248,7 @@ class Scanner:
             forward(2)
             suffix = scan_tag_uri('tag', start_mark)
             if peek() != '>':
-                SGYPaser.error("while parsing a tag %s expected '>', but found %c %s" 
+                error("while parsing a tag %s expected '>', but found %c %s" 
                 % [start_mark, peek(), get_mark()])
             forward()
         elif ch in '\u0003 \t\r\n':
@@ -1177,7 +1274,7 @@ class Scanner:
             suffix = scan_tag_uri('tag', start_mark)
         ch = peek()
         if ch not in '\u0003 \r\n':
-            SGYPaser.error("while scanning a tag %s expected ' ', but found %c %s" 
+            error("while scanning a tag %s expected ' ', but found %c %s" 
             % [start_mark, ch, get_mark()])
         var value = [handle, suffix]
         var end_mark = get_mark()
@@ -1286,13 +1383,13 @@ class Scanner:
             if ch in '0123456789':
                 increment = int(ch)
                 if increment == 0:
-                    SGYPaser.error("while scanning a block scalar %s expected indentation indicator in the range 1-9, but found 0 %s"
+                    error("while scanning a block scalar %s expected indentation indicator in the range 1-9, but found 0 %s"
                     % [start_mark, get_mark()])
                 forward()
         elif ch in '0123456789':
             increment = int(ch)
             if increment == 0:
-                SGYPaser.error("while scanning a block scalar %s expected indentation indicator in the range 1-9, but found 0 %s"
+                error("while scanning a block scalar %s expected indentation indicator in the range 1-9, but found 0 %s"
                 % [start_mark, get_mark()])
             forward()
             ch = peek()
@@ -1304,7 +1401,7 @@ class Scanner:
                 forward()
         ch = peek()
         if ch not in '\u0003 \r\n':
-            SGYPaser.error("while scanning a block scalar %s expected chomping or indentation indicators, but found %c %s"
+            error("while scanning a block scalar %s expected chomping or indentation indicators, but found %c %s"
             % [start_mark, ch, get_mark()])
         return {"chomping":chomping, "increment":increment}
 
@@ -1317,7 +1414,7 @@ class Scanner:
                 forward()
         var ch = peek()
         if ch not in '\u0003\r\n':
-            SGYPaser.error("while scanning a block scalar %s expected a comment or a line break, but found %c %s" 
+            error("while scanning a block scalar %s expected a comment or a line break, but found %c %s" 
             % [start_mark, ch, get_mark()])
         scan_line_break()
 
@@ -1366,7 +1463,7 @@ class Scanner:
             chunks.append_array(scan_flow_scalar_spaces(double, start_mark))
             chunks.append_array(scan_flow_scalar_non_spaces(double, start_mark))
 
-            if SGYPaser.has_error():
+            if done: # This will never happen unless there is an error.
                 return
 
         forward()
@@ -1429,7 +1526,7 @@ class Scanner:
                     forward()
                     for k in range(length):
                         if peek(k) not in '0123456789ABCDEFabcdef':
-                            SGYPaser.error("while scanning a double-quoted scalar %s expected escape sequence of %d hexadecimal numbers, but found %c %s" 
+                            error("while scanning a double-quoted scalar %s expected escape sequence of %d hexadecimal numbers, but found %c %s" 
                             % [start_mark, length, peek(k), get_mark()])
                     var code = prefix(length).hex_to_int()
                     chunks.append(char(code))
@@ -1438,7 +1535,7 @@ class Scanner:
                     scan_line_break()
                     chunks.append_array(scan_flow_scalar_breaks(double, start_mark))
                 else:
-                    SGYPaser.error("while scanning a double-quoted scalar %s found unknown escape character %c %s" 
+                    error("while scanning a double-quoted scalar %s found unknown escape character %c %s" 
                     % [start_mark, ch, get_mark()])
             else:
                 return chunks
@@ -1453,7 +1550,7 @@ class Scanner:
         forward(length)
         var ch = peek()
         if ch == '\u0003':
-            SGYPaser.error("while scanning a quoted scalar %s found unexpected end of stream %s" 
+            error("while scanning a quoted scalar %s found unexpected end of stream %s" 
             % [start_mark, get_mark()])
         elif ch in '\r\n':
             var line_break = scan_line_break()
@@ -1476,7 +1573,7 @@ class Scanner:
             var prefix = prefix(3)
             if (prefix == '---' or prefix == '...')   \
                     and peek(3) in '\u0003 \t\r\n':
-                SGYPaser.error("while scanning a quoted scalar %s found unexpected document separator %s"
+                error("while scanning a quoted scalar %s found unexpected document separator %s"
                 % [start_mark, get_mark()])
             while peek() in ' \t':
                 forward()
@@ -1570,7 +1667,7 @@ class Scanner:
         # tag handles. I have allowed it anyway.
         var ch = peek()
         if ch != '!':
-            SGYPaser.error("while scanning a %s %s expected '!', but found %c %s" 
+            error("while scanning a %s %s expected '!', but found %c %s" 
             % [name, start_mark, ch, get_mark()])
         var length = 1
         ch = peek(length)
@@ -1581,7 +1678,7 @@ class Scanner:
                 ch = peek(length)
             if ch != '!':
                 forward(length)
-                SGYPaser.error("while scanning a %s %s expected '!', but found %c %s" 
+                error("while scanning a %s %s expected '!', but found %c %s" 
                 % [name, start_mark, ch, get_mark()])
             length += 1
         var value = prefix(length)
@@ -1609,7 +1706,7 @@ class Scanner:
             forward(length)
             length = 0
         if not chunks:
-            SGYPaser.error("while parsing a %s %s expected URI, but found %c %s" 
+            error("while parsing a %s %s expected URI, but found %c %s" 
             % [name, start_mark, ch, get_mark()])
         return ''.join(chunks)
 
@@ -1621,7 +1718,7 @@ class Scanner:
             forward()
             for k in range(2):
                 if peek(k) not in '0123456789ABCDEFabcdef':
-                    SGYPaser.error("while scanning a %s %s expected URI escape sequence of 2 hexadecimal numbers, but found %c %s" 
+                    error("while scanning a %s %s expected URI escape sequence of 2 hexadecimal numbers, but found %c %s" 
                     % [name, start_mark, peek(k), get_mark()])
             codes.append(prefix(2).hex_to_int())
             forward(2)
@@ -1650,7 +1747,7 @@ class Event:
     # MAPPING-END
     # ALIAS(value)
     # SCALAR(anchor, tag, implicit, value, style)
-    static var valid_types := [
+    var valid_types := [
         "STREAM_START"  , "STREAM_END",
         "DOCUMENT_START", "DOCUMENT_END",
         "SEQUENCE_START", "SEQUENCE_END",
@@ -1730,6 +1827,10 @@ class Parser:
 
     func _init(p_scanner):
         scanner = p_scanner
+    
+    signal error_occurred(error_messages)
+    func error(...messages):
+        error_occurred.emit(messages)
 
     func check_event(...event_types):
         # Check the type of the next event.
@@ -1763,7 +1864,7 @@ class Parser:
         var events = []
         while state != null:
             var event = state.call()
-            if not SGYPaser.has_error():
+            if not YAML.has_error():
                 events.append(event)
             else:
                 break
@@ -1819,7 +1920,7 @@ class Parser:
             var tags = temp_array[1]
 
             if not scanner.check_token("DOCUMENT_START"):
-                SGYPaser.error("expected '<document start>', but found %s" % token.type,
+                error("expected '<document start>', but found %s" % token.type,
                         token.start_mark)
             token = scanner.get_token()
             var end_mark = token.end_mark
@@ -1870,18 +1971,18 @@ class Parser:
             var token = scanner.get_token()
             if token.name == 'YAML':
                 if yaml_version != null:
-                    SGYPaser.error("found duplicate YAML directive", token.start_mark)
+                    error("found duplicate YAML directive", token.start_mark)
                 var major = token.value[0]
                 var minor = token.value[1]
                 if major != 1:
-                    SGYPaser.error("found incompatible YAML document (version 1.* is required)",
+                    error("found incompatible YAML document (version 1.* is required)",
                             token.start_mark)
                 yaml_version = token.value
             elif token.name == 'TAG':
                 var handle = token.value[0]
                 var prefix = token.value[1]
                 if handle in tag_handles:
-                    SGYPaser.error(null, null,
+                    error(null, null,
                             "duplicate tag handle %s" % handle,
                             token.start_mark)
                 tag_handles[handle] = prefix
@@ -1961,7 +2062,7 @@ class Parser:
                 var suffix = tag[1]
                 if handle != null:
                     if handle not in tag_handles:
-                        SGYPaser.error("while parsing a node", start_mark,
+                        error("while parsing a node", start_mark,
                                 "found undefined tag handle %s" % handle,
                                 tag_mark)
                         return
@@ -1969,7 +2070,7 @@ class Parser:
                 else:
                     tag = suffix
             #if tag == '!':
-            #    SGYPaser.error("while parsing a node", start_mark,
+            #    error("while parsing a node", start_mark,
             #            "found non-specific tag '!'", tag_mark,
             #            "Please check 'http://pyyaml.org/wiki/YAMLNonSpecificTag' and share your opinion.")
             if start_mark == null:
@@ -2028,7 +2129,7 @@ class Parser:
                 else:
                     var node_type = 'block' if is_block else 'flow'
                     var token = scanner.peek_token()
-                    SGYPaser.error("while parsing a %s node" % node_type, start_mark,
+                    error("while parsing a %s node" % node_type, start_mark,
                             "expected the node content, but found %s" % token.type,
                             token.start_mark)
         return event
@@ -2052,7 +2153,7 @@ class Parser:
                 return process_empty_scalar(token.end_mark)
         if not scanner.check_token("BLOCK_END"):
             token = scanner.peek_token()
-            SGYPaser.error("while parsing a block collection", marks[-1],
+            error("while parsing a block collection", marks[-1],
                     "expected <block end>, but found %s" % token.type, token.start_mark)
         token = scanner.get_token()
         var event = Event.new("SEQUENCE_END", token.start_mark, token.end_mark)
@@ -2099,7 +2200,7 @@ class Parser:
                 return process_empty_scalar(token.end_mark)
         if not scanner.check_token("BLOCK_END"):
             token = scanner.peek_token()
-            SGYPaser.error("while parsing a block mapping", marks[-1],
+            error("while parsing a block mapping", marks[-1],
                     "expected <block end>, but found %s" % token.type, token.start_mark)
         token = scanner.get_token()
         var event = Event.new("MAPPING_END", token.start_mark, token.end_mark)
@@ -2145,7 +2246,7 @@ class Parser:
                     scanner.get_token()
                 else:
                     var token = scanner.peek_token()
-                    SGYPaser.error("while parsing a flow sequence", marks[-1],
+                    error("while parsing a flow sequence", marks[-1],
                             "expected ',' or ']', but got %s" % token.type, token.start_mark)
             
             if scanner.check_token("KEY"):
@@ -2212,7 +2313,7 @@ class Parser:
                     scanner.get_token()
                 else:
                     var token = scanner.peek_token()
-                    SGYPaser.error("while parsing a flow mapping", marks[-1],
+                    error("while parsing a flow mapping", marks[-1],
                             "expected ',' or '}', but got %s" % token.type, token.start_mark)
             if scanner.check_token("KEY"):
                 var token = scanner.get_token()
@@ -2258,7 +2359,7 @@ class YAMLNode:
     # SEQUENCE(tag, value, is_flow_style)
     # MAPPING(tag, value, is_flow_style)
     # SCALAR(tag, value, style)
-    static var valid_types := [
+    var valid_types := [
         "SEQUENCE",
         "MAPPING",
         "SCALAR"
@@ -2302,6 +2403,10 @@ class Composer:
     func _init(p_parser):
         parser = p_parser
 
+    signal error_occurred(error_messages)
+    func error(...messages):
+        error_occurred.emit(messages)
+
     func check_node():
         # Drop the STREAM-START event.
         if parser.check_event("STREAM_START"):
@@ -2327,7 +2432,7 @@ class Composer:
         # Ensure that the stream contains no more documents.
         if not parser.check_event("STREAM_END"):
             var event = parser.get_event()
-            SGYPaser.error("expected a single document in the stream",
+            error("expected a single document in the stream",
                     document.start_mark, "but found another document",
                     event.start_mark)
 
@@ -2356,14 +2461,14 @@ class Composer:
             event = parser.get_event()
             anchor = event.anchor
             if anchor not in anchors:
-                SGYPaser.error("found undefined alias %s"
+                error("found undefined alias %s"
                         % anchor, event.start_mark)
             return anchors[anchor]
         event = parser.peek_event()
         anchor = event.anchor
         if anchor != null:
             if anchor in anchors:
-                SGYPaser.error("found duplicate anchor %s; first occurrence"
+                error("found duplicate anchor %s; first occurrence"
                         % anchor, anchors[anchor].start_mark,
                         "second occurrence", event.start_mark)
 
@@ -2419,7 +2524,7 @@ class Composer:
             #key_event = parser.peek_event()
             var item_key = compose_node(node, null)
             #if item_key in node.value:
-            #    SGYPaser.error("while composing a mapping", start_event.start_mark,
+            #    error("while composing a mapping", start_event.start_mark,
             #            "found duplicate key", key_event.start_mark)
             var item_value = compose_node(node, item_key)
             #node.value[item_key] = item_value
@@ -2656,31 +2761,35 @@ class Constructor:
     static var yaml_constructors = {}
     static var yaml_multi_constructors = {}
 
-    static var constructed_objects = {}
-    static var recursive_objects = {}
-    # static var state_generators = []
-    static var deep_construct = false
+    var constructed_objects = {}
+    var recursive_objects = {}
+    # var state_generators = []
+    var deep_construct = false
 
     var composer :Composer
 
-    func _init(p_composer):
+    func _init(p_composer=null):
         composer = p_composer
+        init_yaml_constructors()
 
-    static func init_yaml_constructors():
-        for builtin_type in ("null bool int float str binary timestamp" + ' ' +\
-        "omap pairs set seq map").split(' '):
-            Constructor.add_constructor("tag:yaml.org,2002:%s" % builtin_type,
-            Constructor["construct_yaml_%s" % builtin_type])
+    signal error_occurred(error_messages)
+    func error(...messages):
+        error_occurred.emit(messages)
+
+    func init_yaml_constructors():
+        for yaml_type in ("null bool int float str binary timestamp omap pairs set seq map").split(' '):
+            Constructor.add_constructor("tag:yaml.org,2002:%s" % yaml_type,
+                self["construct_yaml_%s" % yaml_type])
 
         Constructor.add_constructor(null,
-                Constructor.construct_undefined)
+                construct_undefined)
 
-        for godot_type in ("Vector2 Vector2i Vector3 Vector3i Vector4 Vector4i" + ' ' +\
-        "StringName Color Rect2 Rect2i Basis Transform2D Transform3D Quaternion AABB NodePath" + ' ' +\
-        "Projection Plane PackedByteArray PackedColorArray PackedFloat32Array PackedFloat64Array" + ' ' +\
-        "PackedInt32Array PackedInt64Array PackedStringArray PackedVector2Array PackedVector3Array PackedVector4Array").split(' '):
+        for godot_type in ("Vector2 Vector2i Vector3 Vector3i Vector4 Vector4i "
+        + "StringName Color Rect2 Rect2i Basis Transform2D Transform3D Quaternion AABB NodePath "
+        + "Projection Plane PackedByteArray PackedColorArray PackedFloat32Array PackedFloat64Array "
+        + "PackedInt32Array PackedInt64Array PackedStringArray PackedVector2Array PackedVector3Array PackedVector4Array").split(' '):
             Constructor.add_constructor("!%s" % godot_type,
-            Constructor["construct_godot_%s" % godot_type])
+                self["construct_godot_%s" % godot_type])
 
     func check_data():
         # If there are more documents available?
@@ -2701,7 +2810,7 @@ class Constructor:
     #     # object, to prevent user-controlled methods from being called during
     #     # deserialization"""
     #     if get_state_keys_blacklist_regexp().search(key) != null:
-    #         SGYPaser.error("blacklisted key '%s' in instance state found" % key)
+    #         error("blacklisted key '%s' in instance state found" % key)
 
     func get_data():
         # Construct and return the next document.
@@ -2729,7 +2838,7 @@ class Constructor:
         return data
 
     # NOTE: The 'deep' parameter currently has no effect.
-    static func construct_object(node, deep=false):
+    func construct_object(node, deep=false):
         var old_deep
         if node in constructed_objects:
             return constructed_objects[node]
@@ -2738,7 +2847,7 @@ class Constructor:
             deep_construct = true
         if node in recursive_objects:
             return recursive_objects[node]
-            # SGYPaser.error("found unconstructable recursive node %s" % node.start_mark)
+            # error("found unconstructable recursive node %s" % node.start_mark)
         recursive_objects[node] = null
         var constructor = null
         var tag_suffix = null
@@ -2783,15 +2892,15 @@ class Constructor:
             deep_construct = old_deep
         return data
 
-    static func construct_scalar(node):
+    func construct_scalar(node):
         if node.type != "SCALAR":
-            SGYPaser.error("expected a scalar node, but found %s" % node.type,
+            error("expected a scalar node, but found %s" % node.type,
                     node.start_mark)
         return node.value
 
-    static func construct_sequence(node, deep=false):
+    func construct_sequence(node, deep=false):
         if node.type != "SEQUENCE":
-            SGYPaser.error("expected a sequence node, but found %s" % node.type,
+            error("expected a sequence node, but found %s" % node.type,
                     node.start_mark)
 
         var result_array = []
@@ -2799,11 +2908,11 @@ class Constructor:
             result_array.append(construct_object(child, deep))
         return result_array
 
-    static func construct_mapping(node, deep=false):
+    func construct_mapping(node, deep=false):
         if node.type == "MAPPING":
             flatten_mapping(node)
         if node.type != "MAPPING":
-            SGYPaser.error("expected a mapping node, but found %s" % node.type,
+            error("expected a mapping node, but found %s" % node.type,
                     node.start_mark)
         var mapping = {}
         for temp_array in node.value:
@@ -2811,7 +2920,7 @@ class Constructor:
             var value_node = temp_array[1]
             var key = construct_object(key_node, deep)
             # if not isinstance(key, collections.abc.Hashable):
-            #     SGYPaser.error("while constructing a mapping", node.start_mark,
+            #     error("while constructing a mapping", node.start_mark,
             #             "found unhashable key", key_node.start_mark)
             var value = construct_object(value_node, deep)
             mapping[key] = value
@@ -2819,7 +2928,7 @@ class Constructor:
 
     # func construct_pairs(node, deep=false):
     #     if node.type != "MAPPING":
-    #         SGYPaser.error("expected a mapping node, but found %s" % node.type,
+    #         error("expected a mapping node, but found %s" % node.type,
     #                 node.start_mark)
     #     var pairs = []
     #     for temp_array in node.value:
@@ -2836,7 +2945,7 @@ class Constructor:
     static func add_multi_constructor(tag_prefix, multi_constructor):
         yaml_multi_constructors[tag_prefix] = multi_constructor
 
-    static func flatten_mapping(node):
+    func flatten_mapping(node):
         var merge = []
         var index = 0
         while index < len(node.value):
@@ -2852,7 +2961,7 @@ class Constructor:
                     var submerge = []
                     for subnode in value_node.value:
                         if subnode.type != "MAPPING":
-                            SGYPaser.error("while constructing a mapping",
+                            error("while constructing a mapping",
                                     node.start_mark,
                                     "expected a mapping for merging, but found %s"
                                     % subnode.type, subnode.start_mark)
@@ -2862,7 +2971,7 @@ class Constructor:
                     for value in submerge:
                         merge.append_array(value)
                 else:
-                    SGYPaser.error("while constructing a mapping", node.start_mark,
+                    error("while constructing a mapping", node.start_mark,
                             "expected a mapping or list of mappings for merging, but found %s"
                             % value_node.type, value_node.start_mark)
             elif key_node.tag == 'tag:yaml.org,2002:value':
@@ -2873,7 +2982,7 @@ class Constructor:
         if merge:
             node.value = merge + node.value
 
-    static func construct_yaml_null(node):
+    func construct_yaml_null(node):
         construct_scalar(node)
         return null
 
@@ -2886,11 +2995,11 @@ class Constructor:
         'off':      false,
     }
 
-    static func construct_yaml_bool(node):
+    func construct_yaml_bool(node):
         var value = construct_scalar(node)
         return bool_values[value.to_lower()]
 
-    static func construct_yaml_int(node):
+    func construct_yaml_int(node):
         var value = construct_scalar(node)
         value = value.replace('_', '')
         var sign = +1
@@ -2923,7 +3032,7 @@ class Constructor:
         else:
             return sign*int(value)
 
-    static func construct_yaml_float(node):
+    func construct_yaml_float(node):
         var value = construct_scalar(node)
         value = value.replace('_', '').to_lower()
         var sign = +1
@@ -2949,27 +3058,27 @@ class Constructor:
         else:
             return sign*float(value)
 
-    static func construct_yaml_binary(node):
+    func construct_yaml_binary(node):
         var value = construct_scalar(node)
         return Marshalls.base64_to_raw(value)
 
-    static func construct_yaml_timestamp(node):
+    func construct_yaml_timestamp(node):
         return  construct_yaml_str(node)
 
-    static func construct_yaml_omap(node):
+    func construct_yaml_omap(node):
         var omap = []
         recursive_objects[node] = omap
         if node.type != "SEQUENCE":
-            SGYPaser.error("while constructing an ordered map", node.start_mark,
+            error("while constructing an ordered map", node.start_mark,
                     "expected a sequence, but found %s" % node.type, node.start_mark)
         var key_cache = []
         for subnode in node.value:
             if subnode.type != "MAPPING":
-                SGYPaser.error("while constructing an ordered map", node.start_mark,
+                error("while constructing an ordered map", node.start_mark,
                         "expected a mapping of length 1, but found %s" % subnode.type,
                         subnode.start_mark)
             if len(subnode.value) != 1:
-                SGYPaser.error("while constructing an ordered map", node.start_mark,
+                error("while constructing an ordered map", node.start_mark,
                         "expected a single mapping item, but found %d items" % len(subnode.value),
                         subnode.start_mark)
             var temp_array = subnode.value[0]
@@ -2977,27 +3086,27 @@ class Constructor:
             var value_node = temp_array[1]
             var key = construct_object(key_node)
             if key in key_cache:
-                SGYPaser.error("while constructing an ordered map", node.start_mark,
+                error("while constructing an ordered map", node.start_mark,
                         "found duplicate key", subnode.start_mark)
             var value = construct_object(value_node)
             key_cache.append(key)
             omap.append({key:value})
         return omap
 
-    static func construct_yaml_pairs(node):
+    func construct_yaml_pairs(node):
         # Note: the same code as `construct_yaml_omap`, but allows duplicate keys.
         var pairs = []
         recursive_objects[node] = pairs
         if node.type != "SEQUENCE":
-            SGYPaser.error("while constructing an ordered map", node.start_mark,
+            error("while constructing an ordered map", node.start_mark,
                     "expected a sequence, but found %s" % node.type, node.start_mark)
         for subnode in node.value:
             if subnode.type != "MAPPING":
-                SGYPaser.error("while constructing an ordered map", node.start_mark,
+                error("while constructing an ordered map", node.start_mark,
                         "expected a mapping of length 1, but found %s" % subnode.type,
                         subnode.start_mark)
             if len(subnode.value) != 1:
-                SGYPaser.error("while constructing an ordered map", node.start_mark,
+                error("while constructing an ordered map", node.start_mark,
                         "expected a single mapping item, but found %d items" % len(subnode.value),
                         subnode.start_mark)
             var temp_array = subnode.value[0]
@@ -3008,30 +3117,30 @@ class Constructor:
             pairs.append({key:value})
         return pairs
 
-    static func construct_yaml_set(node):
+    func construct_yaml_set(node):
         return construct_yaml_map(node)
 
-    static func construct_yaml_str(node):
+    func construct_yaml_str(node):
         return construct_scalar(node)
 
-    static func construct_yaml_seq(node):
+    func construct_yaml_seq(node):
         var data = []
         recursive_objects[node] = data
         data.append_array(construct_sequence(node))
         return data
 
-    static func construct_yaml_map(node):
+    func construct_yaml_map(node):
         var data = {}
         recursive_objects[node] = data
         data.merge(construct_mapping(node), true)
         return data
 
-    static func construct_undefined(node):
-        SGYPaser.error("could not determine a constructor for the tag %s" % node.tag,
+    func construct_undefined(node):
+        error("could not determine a constructor for the tag %s" % node.tag,
                 node.start_mark)
 
 
-    static func construct_godot_object(node, cls, deserialize):
+    func construct_godot_object(node, cls, deserialize):
         var data = cls.new()
         recursive_objects[node] = data
         var state = construct_mapping(node, true)
@@ -3045,42 +3154,42 @@ class Constructor:
                 if key.trim_prefix("p_") in instance_property_list:
                     data.set(key.trim_prefix("p_"), state[key.trim_prefix("p_")])
                 else:
-                    SGYPaser.error("while constructing a godot object",
+                    error("while constructing a godot object",
                                     node.start_mark,
                                     "key: %s is not in the instance_property_list" % key)
         return data
 
-    static func construct_godot_Vector2(node):
+    func construct_godot_Vector2(node):
         var args_dict = construct_mapping(node)
         return Vector2(args_dict.x, args_dict.y)
 
-    static func construct_godot_Vector2i(node):
+    func construct_godot_Vector2i(node):
         var args_dict = construct_mapping(node)
         return Vector2i(args_dict.x, args_dict.y)
 
-    static func construct_godot_Vector3(node):
+    func construct_godot_Vector3(node):
         var args_dict = construct_mapping(node)
         return Vector3(args_dict.x, args_dict.y, args_dict.z)
 
-    static func construct_godot_Vector3i(node):
+    func construct_godot_Vector3i(node):
         var args_dict = construct_mapping(node)
         return Vector3i(args_dict.x, args_dict.y, args_dict.z)
 
-    static func construct_godot_Vector4(node):
+    func construct_godot_Vector4(node):
         var args_dict = construct_mapping(node)
         return Vector4(args_dict.x, args_dict.y, args_dict.z, args_dict.w)
 
-    static func construct_godot_Vector4i(node):
+    func construct_godot_Vector4i(node):
         var args_dict = construct_mapping(node)
         return Vector4i(args_dict.x, args_dict.y, args_dict.z, args_dict.w)
 
-    static func construct_godot_StringName(node):
+    func construct_godot_StringName(node):
         return StringName(construct_scalar(node))
 
-    static func construct_godot_Color(node):
+    func construct_godot_Color(node):
         return Color(construct_scalar(node))
 
-    static func construct_godot_Rect2(node):
+    func construct_godot_Rect2(node):
         var args_dict = construct_mapping(node)
         if args_dict.position is Vector2 and args_dict.size is Vector2:
             return Rect2(args_dict.position, args_dict.size)
@@ -3089,7 +3198,7 @@ class Constructor:
             var size = args_dict.size
             return Rect2(Vector2(position.x, position.y), Vector2(size.x, size.y))
 
-    static func construct_godot_Rect2i(node):
+    func construct_godot_Rect2i(node):
         var args_dict = construct_mapping(node)
         if args_dict.position is Vector2i and args_dict.size is Vector2i:
             return Rect2i(args_dict.position, args_dict.size)
@@ -3098,7 +3207,7 @@ class Constructor:
             var size = args_dict.size
             return Rect2i(Vector2i(position.x, position.y), Vector2i(size.x, size.y))
 
-    static func construct_godot_Basis(node):
+    func construct_godot_Basis(node):
         var args_dict = construct_mapping(node)
         if args_dict.keys().all(func(k): args_dict[k] is Vector3):
             return Basis(args_dict.x, args_dict.y, args_dict.z)
@@ -3108,7 +3217,7 @@ class Constructor:
                 data[key] = Vector3(args_dict[key].x, args_dict[key].y, args_dict[key].z)
             return data
 
-    static func construct_godot_Transform2D(node):
+    func construct_godot_Transform2D(node):
         var args_dict = construct_mapping(node)
         if args_dict.keys().all(func(k): args_dict[k] is Vector2):
             return Transform2D(args_dict.x, args_dict.y, args_dict.origin)
@@ -3118,7 +3227,7 @@ class Constructor:
                 data[key] = Vector2(args_dict[key].x, args_dict[key].y)
             return data
 
-    static func construct_godot_Transform3D(node):
+    func construct_godot_Transform3D(node):
         var args_dict = construct_mapping(node)
         if args_dict.basis is Basis and args_dict.origin is Vector3:
             return Transform3D(args_dict.basis, args_dict.origin)
@@ -3130,11 +3239,11 @@ class Constructor:
             var origin = Vector3(args_dict.origin.x, args_dict.origin.y, args_dict.origin.z)
             return Transform3D(basis, origin)
 
-    static func construct_godot_Quaternion(node):
+    func construct_godot_Quaternion(node):
         var args_dict = construct_mapping(node)
         return Quaternion(args_dict.x, args_dict.y, args_dict.z, args_dict.w)
 
-    static func construct_godot_AABB(node):
+    func construct_godot_AABB(node):
         var args_dict = construct_mapping(node)
         if args_dict.position is Vector3 and args_dict.size is Vector3:
             return AABB(args_dict.position, args_dict.size)
@@ -3143,10 +3252,10 @@ class Constructor:
             var size = Vector3(args_dict.size.x, args_dict.size.y, args_dict.size.z)
             return AABB(position, size)
 
-    static func construct_godot_NodePath(node):
+    func construct_godot_NodePath(node):
         return NodePath(construct_scalar(node))
 
-    static func construct_godot_Plane(node):
+    func construct_godot_Plane(node):
         var args_dict = construct_mapping(node)
         if args_dict.normal is Vector3 and args_dict.d is float:
             return Plane(args_dict.normal, args_dict.d)
@@ -3154,7 +3263,7 @@ class Constructor:
             var normal = Vector3(args_dict.normal.x, args_dict.normal.y, args_dict.normal.z)
             return Plane(normal, args_dict.d)
 
-    static func construct_godot_Projection(node):
+    func construct_godot_Projection(node):
         var args_dict = construct_mapping(node)
         if args_dict.keys().all(func(k): args_dict[k] is Vector4):
             return Projection(args_dict.x, args_dict.y, args_dict.z, args_dict.w)
@@ -3164,58 +3273,58 @@ class Constructor:
                 data[key] = Vector4(args_dict[key].x, args_dict[key].y, args_dict[key].z, args_dict[key].w)
             return data
 
-    static func construct_godot_PackedByteArray(node):
+    func construct_godot_PackedByteArray(node):
         return construct_yaml_binary(node)
 
-    static func construct_godot_PackedColorArray(node):
+    func construct_godot_PackedColorArray(node):
         var data = PackedColorArray()
         for color_code in construct_sequence(node):
             data.append(Color(color_code))
         return data
 
-    static func construct_godot_PackedFloat32Array(node):
+    func construct_godot_PackedFloat32Array(node):
         var data = PackedFloat32Array()
         for float32 in construct_sequence(node):
-            data.append(float(float32))
+            data.append(float32)
         return data
 
-    static func construct_godot_PackedFloat64Array(node):
+    func construct_godot_PackedFloat64Array(node):
         var data = PackedFloat64Array()
         for float64 in construct_sequence(node):
-            data.append(float(float64))
+            data.append(float64)
         return data
 
-    static func construct_godot_PackedInt32Array(node):
+    func construct_godot_PackedInt32Array(node):
         var data = PackedInt32Array()
         for int32 in construct_sequence(node):
-            data.append(int(int32))
+            data.append(int32)
         return data
 
-    static func construct_godot_PackedInt64Array(node):
+    func construct_godot_PackedInt64Array(node):
         var data = PackedInt64Array()
         for int64 in construct_sequence(node):
-            data.append(int(int64))
+            data.append(int64)
         return data
 
-    static func construct_godot_PackedStringArray(node):
+    func construct_godot_PackedStringArray(node):
         var data = PackedStringArray()
         for string in construct_sequence(node):
             data.append(string)
         return data
 
-    static func construct_godot_PackedVector2Array(node):
+    func construct_godot_PackedVector2Array(node):
         var data = PackedVector2Array()
         for vector2 in construct_sequence(node):
             data.append(Vector2(vector2.x, vector2.y))
         return data
 
-    static func construct_godot_PackedVector3Array(node):
+    func construct_godot_PackedVector3Array(node):
         var data = PackedVector3Array()
         for vector3 in construct_sequence(node):
             data.append(Vector3(vector3.x, vector3.y, vector3.z))
         return data
 
-    static func construct_godot_PackedVector4Array(node):
+    func construct_godot_PackedVector4Array(node):
         var data = PackedVector4Array()
         for vector4 in construct_sequence(node):
             data.append(Vector4(vector4.x, vector4.y, vector4.z, vector4.w))
@@ -3242,49 +3351,54 @@ class Representer:
     static var yaml_representers = {}
     static var yaml_multi_representers = {}
     
-    static var represented_objects = {}
-    static var object_keeper = []
-    static var alias_key = null
+    var represented_objects = {}
+    var object_keeper = []
+    var alias_key = null
 
-    static var default_style
-    static var default_flow_style :bool
-    static var sort_keys          :bool
+    var default_style
+    var default_flow_style :bool
+    var sort_keys          :bool
 
-    func _init(p_default_style=null, p_default_flow_style=false, p_sort_keys=true):
+    func _init(p_default_style=null, p_default_flow_style=false, p_sort_keys=false):
         default_style       = p_default_style
         default_flow_style  = p_default_flow_style
         sort_keys           = p_sort_keys
+        init_yaml_representers()
 
-    static func init_yaml_representers():
+    signal error_occurred(error_messages)
+    func error(...messages):
+        error_occurred.emit(messages)
+
+    func init_yaml_representers():
         Representer.add_representer("Nil",
-                Representer.represent_null)
+                represent_null)
 
         Representer.add_representer("String",
-                Representer.represent_str)
+                represent_str)
 
         Representer.add_representer("StringName",
-                Representer.represent_str)
+                represent_str)
 
         Representer.add_representer("PackedByteArray",
-                Representer.represent_binary)
+                represent_binary)
 
         Representer.add_representer("bool",
-                Representer.represent_bool)
+                represent_bool)
 
         Representer.add_representer("int",
-                Representer.represent_int)
+                represent_int)
 
         Representer.add_representer("float",
-                Representer.represent_float)
+                represent_float)
 
         Representer.add_representer("Array",
-                Representer.represent_array)
+                represent_array)
 
         # Representer.add_representer(tuple,
         #         Representer.represent_list)
 
         Representer.add_representer("Dictionary",
-                Representer.represent_dict)
+                represent_dict)
 
         # Representer.add_representer(set,
         #         Representer.represent_set)
@@ -3296,24 +3410,26 @@ class Representer:
         #         Representer.represent_datetime)
 
         Representer.add_representer(null,
-                Representer.represent_undefined)
+                represent_undefined)
 
 
-        for godot_type in ("Vector2 Vector2i Vector3 Vector3i Vector4 Vector4i" + ' ' +\
-        "StringName Color Rect2 Rect2i Basis Transform2D Transform3D Quaternion AABB NodePath" + ' ' +\
-        "Projection Plane PackedByteArray PackedColorArray PackedFloat32Array PackedFloat64Array" + ' ' +\
-        "PackedInt32Array PackedInt64Array PackedStringArray PackedVector2Array PackedVector3Array PackedVector4Array").split(' '):
+        for godot_type in ("Vector2 Vector2i Vector3 Vector3i Vector4 Vector4i "
+        + "StringName Color Rect2 Rect2i Basis Transform2D Transform3D Quaternion AABB NodePath "
+        + "Projection Plane PackedByteArray PackedColorArray PackedFloat32Array PackedFloat64Array "
+        + "PackedInt32Array PackedInt64Array PackedStringArray PackedVector2Array PackedVector3Array PackedVector4Array").split(' '):
             Representer.add_representer(godot_type,
-                    Representer["represent_godot_%s" % godot_type])
+                    self["represent_godot_%s" % godot_type])
 
-    static func represent(data):
+    signal root_node_emerged(root_node:YAMLNode)
+    func represent(data):
         var node = represent_data(data)
-        Serializer.serialize(node)
+        # Serializer.serialize(node)
+        root_node_emerged.emit(node)
         represented_objects = {}
         object_keeper = []
         alias_key = null
 
-    static func represent_data(data):
+    func represent_data(data):
         if ignore_aliases(data):
             alias_key = null
         else:
@@ -3343,7 +3459,7 @@ class Representer:
     static func add_multi_representer(data_type, representer):
         yaml_multi_representers[data_type] = representer
 
-    static func represent_scalar(tag, value, style=null):
+    func represent_scalar(tag, value, style=null):
         if style == null:
             style = default_style
         var node = YAMLNode.new("SCALAR", tag, value, style)
@@ -3351,7 +3467,7 @@ class Representer:
             represented_objects[alias_key] = node
         return node
 
-    static func represent_sequence(tag, sequence, p_flow_style=null):
+    func represent_sequence(tag, sequence, p_flow_style=null):
         var value = []
         var node = YAMLNode.new("SEQUENCE", tag, value, false) # is_flow_style=false
         if alias_key != null:
@@ -3372,7 +3488,7 @@ class Representer:
             
         return node
 
-    static func represent_mapping(tag, mapping, p_flow_style=null):
+    func represent_mapping(tag, mapping, p_flow_style=null):
         var value = []
         var node = YAMLNode.new("MAPPING", tag, value, false) # is_flow_style=false
         if alias_key != null:
@@ -3381,7 +3497,7 @@ class Representer:
 
         if sort_keys:
             mapping.sort()
-        
+
         for key in mapping:
             var mapping_value = mapping[key]
             var node_key = represent_data(key)
@@ -3402,32 +3518,32 @@ class Representer:
 
         return node
 
-    static func ignore_aliases(data):
+    func ignore_aliases(data):
         if type_string(typeof(data)) == "Object":
             return false
         return true
 
 
-    static func represent_null(data):
+    func represent_null(data):
         return represent_scalar('tag:yaml.org,2002:null', 'null')
 
-    static func represent_str(data :String):
+    func represent_str(data :String):
         return represent_scalar('tag:yaml.org,2002:str', data)
 
-    static func represent_binary(data :PackedByteArray):
+    func represent_binary(data :PackedByteArray):
         var value = Marshalls.raw_to_base64(data)
         return represent_scalar('tag:yaml.org,2002:binary', value, '|')
 
-    static func represent_bool(data :bool):
+    func represent_bool(data :bool):
         var value = 'true' if data else 'false'
         return represent_scalar('tag:yaml.org,2002:bool', value)
 
-    static func represent_int(data :int):
+    func represent_int(data :int):
         return represent_scalar('tag:yaml.org,2002:int', str(data))
 
-    static func represent_float(data :float):
+    func represent_float(data :float):
         var value
-        if data == NAN:
+        if is_nan(data):
             value = '.nan'
         elif data == INF:
             value = '.inf'
@@ -3437,17 +3553,17 @@ class Representer:
             value = str(data).to_lower()
         return represent_scalar('tag:yaml.org,2002:float', value)
 
-    static func represent_array(data):
+    func represent_array(data):
         return represent_sequence('tag:yaml.org,2002:seq', data)
 
-    static func represent_dict(data):
+    func represent_dict(data):
         return represent_mapping('tag:yaml.org,2002:map', data)
 
-    static func represent_undefined(data):
-        SGYPaser.error("cannot represent an object", data)
+    func represent_undefined(data):
+        error("cannot represent an object", data)
 
 
-    static func represent_godot_object(data, tag, serialize):
+    func represent_godot_object(data, tag, serialize):
         if not serialize.is_empty() and data.has_method(serialize):
             return represent_mapping(tag, data.serialize())
         else:
@@ -3459,128 +3575,133 @@ class Representer:
                 if key.trim_prefix("p_") in instance_property_list:
                     _init_args_dict.set(key.trim_prefix("p_"), data[key.trim_prefix("p_")])
                 else:
-                    SGYPaser.error("while representing a godot object",
+                    error("while representing a godot object",
                                     data,
                                     "key: %s is not in the instance_property_list" % key)
             return represent_mapping(tag, _init_args_dict)
 
-    static func represent_godot_Vector2(data):
+    func represent_godot_Vector2(data):
         return represent_mapping('!Vector2', {x=data.x, y=data.y}, true)
 
-    static func represent_godot_Vector2i(data):
+    func represent_godot_Vector2i(data):
         return represent_mapping('!Vector2i', {x=data.x, y=data.y}, true)
 
-    static func represent_godot_Vector3(data):
+    func represent_godot_Vector3(data):
         return represent_mapping('!Vector3', {x=data.x, y=data.y, z=data.z}, true)
 
-    static func represent_godot_Vector3i(data):
+    func represent_godot_Vector3i(data):
         return represent_mapping('!Vector3i', {x=data.x, y=data.y, z=data.z}, true)
 
-    static func represent_godot_Vector4(data):
+    func represent_godot_Vector4(data):
         return represent_mapping('!Vector4', {x=data.x, y=data.y, z=data.z, w=data.w}, true)
 
-    static func represent_godot_Vector4i(data):
+    func represent_godot_Vector4i(data):
         return represent_mapping('!Vector4i', {x=data.x, y=data.y, z=data.z, w=data.w}, true)
 
-    static func represent_godot_StringName(data):
+    func represent_godot_StringName(data):
         return represent_scalar('tag:yaml.org,2002:str', str(data))
 
-    static func represent_godot_Color(data):
+    func represent_godot_Color(data):
         return represent_scalar('!Color', data.to_html())
 
-    static func represent_godot_Rect2(data):
+    func represent_godot_Rect2(data):
         return represent_mapping('!Rect2', {position=data.position, size=data.size})
 
-    static func represent_godot_Rect2i(data):
+    func represent_godot_Rect2i(data):
         return represent_mapping('!Rect2i', {position=data.position, size=data.size})
 
-    static func represent_godot_Basis(data):
+    func represent_godot_Basis(data):
         return represent_mapping('!Basis', {x=data.x, y=data.y, z=data.z})
 
-    static func represent_godot_Transform2D(data):
+    func represent_godot_Transform2D(data):
         return represent_mapping('!Transform2D', {x=data.x, y=data.y, origin=data.origin})
 
-    static func represent_godot_Transform3D(data):
+    func represent_godot_Transform3D(data):
         return represent_mapping('!Transform3D', {basis=data.basis, origin=data.origin})
 
-    static func represent_godot_Quaternion(data):
+    func represent_godot_Quaternion(data):
         return represent_mapping('!Quaternion', {x=data.x, y=data.y, z=data.z, w=data.w}, true)
 
-    static func represent_godot_AABB(data):
+    func represent_godot_AABB(data):
         return represent_mapping('!AABB', {position=data.position, size=data.size})
 
-    static func represent_godot_NodePath(data):
+    func represent_godot_NodePath(data):
         return represent_scalar('!NodePath', str(data))
 
-    static func represent_godot_Projection(data):
+    func represent_godot_Projection(data):
         return represent_mapping('!Projection', {x=data.x, y=data.y, z=data.z, w=data.w})
 
-    static func represent_godot_Plane(data):
+    func represent_godot_Plane(data):
         return represent_mapping('!Plane', {normal=data.normal, d=data.d})
 
-    static func represent_godot_PackedByteArray(data):
+    func represent_godot_PackedByteArray(data):
         return represent_scalar('!PackedByteArray', Marshalls.raw_to_base64(data), '|')
 
-    static func represent_godot_PackedColorArray(data):
+    func represent_godot_PackedColorArray(data):
         return represent_sequence('!PackedColorArray', data)
 
-    static func represent_godot_PackedFloat32Array(data):
+    func represent_godot_PackedFloat32Array(data):
         return represent_sequence('!PackedFloat32Array', data)
 
-    static func represent_godot_PackedFloat64Array(data):
+    func represent_godot_PackedFloat64Array(data):
         return represent_sequence('!PackedFloat64Array', data)
 
-    static func represent_godot_PackedInt32Array(data):
+    func represent_godot_PackedInt32Array(data):
         return represent_sequence('!PackedInt32Array', data)
 
-    static func represent_godot_PackedInt64Array(data):
+    func represent_godot_PackedInt64Array(data):
         return represent_sequence('!PackedInt64Array', data)
 
-    static func represent_godot_PackedStringArray(data):
+    func represent_godot_PackedStringArray(data):
         return represent_sequence('!PackedStringArray', data)
 
-    static func represent_godot_PackedVector2Array(data):
+    func represent_godot_PackedVector2Array(data):
         return represent_sequence('!PackedVector2Array', data)
 
-    static func represent_godot_PackedVector3Array(data):
+    func represent_godot_PackedVector3Array(data):
         return represent_sequence('!PackedVector3Array', data)
 
-    static func represent_godot_PackedVector4Array(data):
+    func represent_godot_PackedVector4Array(data):
         return represent_sequence('!PackedVector4Array', data)
 
 class Serializer:
     const ANCHOR_TEMPLATE = 'id%03d'
 
-    static var use_encoding
-    static var use_explicit_start = false
-    static var use_explicit_end   = false
-    static var use_version
-    static var use_tags
-    static var serialized_nodes = {}
-    static var anchors          = {}
-    static var last_anchor_id   = 0
+    var use_encoding
+    var use_explicit_start = false
+    var use_explicit_end   = false
+    var use_version
+    var use_tags
+    var serialized_nodes = {}
+    var anchors          = {}
+    var last_anchor_id   = 0
 
-    static func set_up(encoding=null,
+    func _init(encoding=null,
             explicit_start=false, explicit_end=false, version=null, tags=null):
         use_encoding       = encoding
         use_explicit_start = explicit_start
         use_explicit_end   = explicit_end
         use_version        = version
         use_tags           = tags
+    
+    signal error_occurred(error_message:String)
+    func error(message):
+        error_occurred.emit(message)
 
-    static func serialize(node):
-        Emitter.emit(Event.new("STREAM_START"))
-        Emitter.emit(Event.new("DOCUMENT_START", use_explicit_start,
+    signal event_emerged(new_event:Event)
+    func emit(new_event:Event):
+        event_emerged.emit(new_event)
+
+    func serialize(node):
+        emit(Event.new("STREAM_START"))
+        emit(Event.new("DOCUMENT_START", use_explicit_start,
             use_version, use_tags))
         anchor_node(node)
         serialize_node(node, null, null)
-        Emitter.emit(Event.new("DOCUMENT_END", use_explicit_end))
-        Emitter.emit(Event.new("STREAM_END"))
-        serialized_nodes    = {}
-        anchors             = {}
-        last_anchor_id      = 0
+        emit(Event.new("DOCUMENT_END", use_explicit_end))
+        emit(Event.new("STREAM_END"))
 
-    static func anchor_node(node):
+    func anchor_node(node):
         if node in anchors:
             if anchors[node] == null:
                 anchors[node] = generate_anchor(node)
@@ -3596,14 +3717,14 @@ class Serializer:
                     anchor_node(key)
                     anchor_node(value)
 
-    static func generate_anchor(node):
+    func generate_anchor(node):
         last_anchor_id += 1
         return ANCHOR_TEMPLATE % last_anchor_id
 
-    static func serialize_node(node, parent, index):
+    func serialize_node(node, parent, index):
         var alias = anchors[node]
         if node in serialized_nodes:
-            Emitter.emit(Event.new("ALIAS", alias))
+            emit(Event.new("ALIAS", alias))
         else:
             serialized_nodes[node] = true
             Resolver.descend_resolver(parent, index)
@@ -3611,29 +3732,29 @@ class Serializer:
                 var detected_tag = Resolver.resolve("SCALAR", node.value, [true, false])
                 var default_tag = Resolver.resolve("SCALAR", node.value, [false, true])
                 var implicit = [(node.tag == detected_tag), (node.tag == default_tag)]
-                Emitter.emit(Event.new("SCALAR", alias, node.tag, implicit, node.value,
+                emit(Event.new("SCALAR", alias, node.tag, implicit, node.value,
                     node.style))
             elif node.type == "SEQUENCE":
                 var implicit = (node.tag
                             == Resolver.resolve("SEQUENCE", node.value, true))
-                Emitter.emit(Event.new("SEQUENCE_START", alias, node.tag, implicit,
+                emit(Event.new("SEQUENCE_START", alias, node.tag, implicit,
                     node.is_flow_style))
                 index = 0
                 for item in node.value:
                     serialize_node(item, node, index)
                     index += 1
-                Emitter.emit(Event.new("SEQUENCE_END"))
+                emit(Event.new("SEQUENCE_END"))
             elif node.type == "MAPPING":
                 var implicit = (node.tag
                             == Resolver.resolve("MAPPING", node.value, true))
-                Emitter.emit(Event.new("MAPPING_START", alias, node.tag, implicit,
+                emit(Event.new("MAPPING_START", alias, node.tag, implicit,
                     node.is_flow_style))
                 for temp_array in node.value:
                     var key = temp_array[0]
                     var value = temp_array[1]
                     serialize_node(key, node, null)
                     serialize_node(value, node, key)
-                Emitter.emit(Event.new("MAPPING_END"))
+                emit(Event.new("MAPPING_END"))
             Resolver.ascend_resolver()
 
 class Emitter:
@@ -3644,74 +3765,75 @@ class Emitter:
     # sequence ::= SEQUENCE-START node* SEQUENCE-END
     # mapping ::= MAPPING-START (node node)* MAPPING-END
 
-
     const DEFAULT_TAG_PREFIXES = {
         '!' : '!',
         'tag:yaml.org,2002:' : '!!',
     }
 
-
     # The stream should have the methods `write` and possibly `flush`.
-    static var stream
+    var stream
 
     # Encoding can be overridden by STREAM-START.
-    static var encoding = null
+    var encoding = null
 
     # Emitter is a state machine with a stack of states to handle nested
     # structures.
-    static var states = []
-    static var state : Callable = expect_stream_start
+    var states = []
+    var state : Callable = expect_stream_start
 
     # Current event and the event queue.
-    static var events = []
-    static var event = null
+    var events = []
+    var event = null
 
     # The current indentation level and the stack of previous indents.
-    static var indents = []
-    static var indent = null
+    var indents = []
+    var indent = null
 
     # Flow level.
-    static var flow_level = 0
+    var flow_level = 0
 
     # Contexts.
-    static var root_context = false
-    static var sequence_context = false
-    static var mapping_context = false
-    static var simple_key_context = false
+    var root_context = false
+    var sequence_context = false
+    var mapping_context = false
+    var simple_key_context = false
 
     # Characteristics of the last emitted character:
     #  - current position.
     #  - is it a whitespace?
     #  - is it an indention character
     #    (indentation space, '-', '?', or ':')?
-    static var line = 0
-    static var column = 0
-    static var whitespace = true
-    static var indention = true
+    var line = 0
+    var column = 0
+    var whitespace = true
+    var indention = true
 
     # Whether the document requires an explicit document indicator
-    static var open_ended = false
+    var open_ended = false
 
     # Formatting details.
-    static var canonical
-    static var allow_unicode :bool
-    static var best_indent = 2
-    static var best_width = 80
-    static var best_line_break = '\n'
+    var canonical
+    var allow_unicode :bool
+    var best_indent = 2
+    var best_width = 80
+    var best_line_break = '\n'
 
 
     # Tag prefixes.
-    static var tag_prefixes = null
+    var tag_prefixes = null
 
     # Prepared anchor and tag.
-    static var prepared_anchor = null
-    static var prepared_tag = null
+    var prepared_anchor = null
+    var prepared_tag = null
 
     # Scalar analysis and style.
-    static var analysis = null
-    static var style = null
+    var analysis = null
+    var style = null
 
-    static func set_up(p_canonical=null, p_allow_unicode=true, p_indent=2, width=80, line_break='\n'):
+    func _init(p_stream=StreamWrapper.new(), p_canonical=null, p_allow_unicode=true, 
+        p_indent=2, width=80, line_break='\n'):
+        
+        stream = p_stream
         canonical = p_canonical
         allow_unicode = p_allow_unicode
 
@@ -3724,8 +3846,11 @@ class Emitter:
 
         state = expect_stream_start
 
-    static func emit(new_event:Event):
-        print(new_event.type)
+    signal error_occurred(error_message:String)
+    func error(message):
+        error_occurred.emit(message)
+
+    func emit(new_event:Event):
         events.append(new_event)
         while not need_more_events():
             event = events.pop_front()
@@ -3734,7 +3859,7 @@ class Emitter:
 
     # In some cases, we wait for a few next events before emitting.
 
-    static func need_more_events():
+    func need_more_events():
         if events.is_empty():
             return true
         event = events[0]
@@ -3747,7 +3872,7 @@ class Emitter:
         else:
             return false
 
-    static func need_events(count):
+    func need_events(count):
         var level = 0
         for event in events.slice(1, events.size()):
             if event.type in ["DOCUMENT_START", "SEQUENCE_START", "MAPPING_START"]:
@@ -3760,7 +3885,7 @@ class Emitter:
                 return false
         return (len(events) < count+1)
 
-    static func increase_indent(flow=false, indentless=false):
+    func increase_indent(flow=false, indentless=false):
         indents.append(indent)
         if indent == null:
             if flow:
@@ -3774,7 +3899,7 @@ class Emitter:
 
     # Stream handlers.
 
-    static func expect_stream_start():
+    func expect_stream_start():
         if event.type == "STREAM_START":
             #FIXME
             # if event.encoding != null:
@@ -3782,19 +3907,19 @@ class Emitter:
             write_stream_start()
             state = expect_first_document_start
         else:
-            SGYPaser.error("expected StreamStartEvent, but got %s"
+            error("expected StreamStartEvent, but got %s"
                     % event)
 
-    static func expect_nothing():
-        SGYPaser.error("expected nothing, but got %s" % event)
+    func expect_nothing():
+        error("expected nothing, but got %s" % event)
 
 
     # Document handlers.
 
-    static func expect_first_document_start():
+    func expect_first_document_start():
         return expect_document_start(true)
 
-    static func expect_document_start(is_first_document=false):
+    func expect_document_start(is_first_document=false):
         if event.type == "DOCUMENT_START":
             if (event.yaml_version or event.tags) and open_ended:
                 write_indicator('...', true)
@@ -3828,10 +3953,10 @@ class Emitter:
             write_stream_end()
             state = expect_nothing
         else:
-            SGYPaser.error("expected DocumentStartEvent, but got %s"
+            error("expected DocumentStartEvent, but got %s"
                     % event)
 
-    static func expect_document_end():
+    func expect_document_end():
         if event.type == "DOCUMENT_END":
             write_indent()
             if event.is_explicit:
@@ -3840,16 +3965,16 @@ class Emitter:
             flush_stream()
             state = expect_document_start
         else:
-            SGYPaser.error("expected DocumentEndEvent, but got %s"
+            error("expected DocumentEndEvent, but got %s"
                     % event)
 
-    static func expect_document_root():
+    func expect_document_root():
         states.append(expect_document_end)
         expect_node(ExpectNodeType.ROOT)
 
     # Node handlers.
     enum ExpectNodeType {ROOT, SEQUENCE, MAPPING}
-    static func expect_node(type, simple_key=false):
+    func expect_node(type, simple_key=false):
         root_context        = (type == ExpectNodeType.ROOT)
         sequence_context    = (type == ExpectNodeType.SEQUENCE)
         mapping_context     = (type == ExpectNodeType.MAPPING)
@@ -3874,15 +3999,15 @@ class Emitter:
                 else:
                     expect_block_mapping()
         else:
-            SGYPaser.error("expected NodeEvent, but got %s" % event)
+            error("expected NodeEvent, but got %s" % event)
 
-    static func expect_alias():
+    func expect_alias():
         if event.anchor == null:
-            SGYPaser.error("anchor is not specified for alias")
+            error("anchor is not specified for alias")
         process_anchor('*')
         state = states.pop_back()
 
-    static func expect_scalar():
+    func expect_scalar():
         var flow = true
         increase_indent(flow)
         process_scalar()
@@ -3891,7 +4016,7 @@ class Emitter:
 
     # Flow sequence handlers.
 
-    static func expect_flow_sequence():
+    func expect_flow_sequence():
         var whitespace=true
         write_indicator('[', true, whitespace)
         flow_level += 1
@@ -3899,7 +4024,7 @@ class Emitter:
         increase_indent(flow)
         state = expect_first_flow_sequence_item
 
-    static func expect_first_flow_sequence_item():
+    func expect_first_flow_sequence_item():
         if event.type == "SEQUENCE_END":
             indent = indents.pop_back()
             flow_level -= 1
@@ -3911,7 +4036,7 @@ class Emitter:
             states.append(expect_flow_sequence_item)
             expect_node(ExpectNodeType.SEQUENCE)
 
-    static func expect_flow_sequence_item():
+    func expect_flow_sequence_item():
         if event.type == "SEQUENCE_END":
             indent = indents.pop_back()
             flow_level -= 1
@@ -3929,7 +4054,7 @@ class Emitter:
 
     # Flow mapping handlers.
 
-    static func expect_flow_mapping():
+    func expect_flow_mapping():
         var whitespace=true
         write_indicator('{', true, whitespace)
         flow_level += 1
@@ -3937,7 +4062,7 @@ class Emitter:
         increase_indent(flow)
         state = expect_first_flow_mapping_key
 
-    static func expect_first_flow_mapping_key():
+    func expect_first_flow_mapping_key():
         if event.type == "MAPPING_END":
             indent = indents.pop_back()
             flow_level -= 1
@@ -3954,7 +4079,7 @@ class Emitter:
                 states.append(expect_flow_mapping_value)
                 expect_node(ExpectNodeType.MAPPING)
 
-    static func expect_flow_mapping_key():
+    func expect_flow_mapping_key():
         if event.type == "MAPPING_END":
             indent = indents.pop_back()
             flow_level -= 1
@@ -3975,12 +4100,12 @@ class Emitter:
                 states.append(expect_flow_mapping_value)
                 expect_node(ExpectNodeType.MAPPING)
 
-    static func expect_flow_mapping_simple_value():
+    func expect_flow_mapping_simple_value():
         write_indicator(':', false)
         states.append(expect_flow_mapping_key)
         expect_node(ExpectNodeType.MAPPING)
 
-    static func expect_flow_mapping_value():
+    func expect_flow_mapping_value():
         if canonical or column > best_width:
             write_indent()
         write_indicator(':', true)
@@ -3989,15 +4114,15 @@ class Emitter:
 
     # Block sequence handlers.
 
-    static func expect_block_sequence():
+    func expect_block_sequence():
         var indentless = (mapping_context and not indention)
         increase_indent(false, indentless)
         state = expect_first_block_sequence_item
 
-    static func expect_first_block_sequence_item():
+    func expect_first_block_sequence_item():
         return expect_block_sequence_item(true)
 
-    static func expect_block_sequence_item(first=false):
+    func expect_block_sequence_item(first=false):
         if not first and event.type == "SEQUENCE_END":
             indent = indents.pop_back()
             state = states.pop_back()
@@ -4010,15 +4135,15 @@ class Emitter:
 
     # Block mapping handlers.
 
-    static func expect_block_mapping():
+    func expect_block_mapping():
         var flow=false
         increase_indent(flow)
         state = expect_first_block_mapping_key
 
-    static func expect_first_block_mapping_key():
+    func expect_first_block_mapping_key():
         return expect_block_mapping_key(true)
 
-    static func expect_block_mapping_key(first=false):
+    func expect_block_mapping_key(first=false):
         if not first and event.type == "MAPPING_END":
             indent = indents.pop_back()
             state = states.pop_back()
@@ -4033,12 +4158,12 @@ class Emitter:
                 states.append(expect_block_mapping_value)
                 expect_node(ExpectNodeType.MAPPING)
 
-    static func expect_block_mapping_simple_value():
+    func expect_block_mapping_simple_value():
         write_indicator(':', false)
         states.append(expect_block_mapping_key)
         expect_node(ExpectNodeType.MAPPING)
 
-    static func expect_block_mapping_value():
+    func expect_block_mapping_value():
         write_indent()
         var indention=true
         write_indicator(':', true, false, indention)
@@ -4047,22 +4172,22 @@ class Emitter:
 
     # Checkers.
 
-    static func check_empty_sequence():
+    func check_empty_sequence():
         return (event.type == "SEQUENCE_START" and events.is_empty() == false
                 and events[0].type == "SEQUENCE_END")
 
-    static func check_empty_mapping():
+    func check_empty_mapping():
         return (event.type == "MAPPING_START" and events.is_empty() == false
                 and events[0].type == "MAPPING_END")
 
-    static func check_empty_document():
+    func check_empty_document():
         if not event.type == "DOCUMENT_START" or events.is_empty():
             return false
         event = events[0]
         return (event.type == "SCALAR" and event.anchor == null
                 and event.tag == null and event.implicit and event.value == '')
 
-    static func check_simple_key():
+    func check_simple_key():
         var length = 0
         if event.type in ["SEQUENCE_START", "MAPPING_START", "ALIAS", "SCALAR"] and event.anchor != null:
             if prepared_anchor == null:
@@ -4084,7 +4209,7 @@ class Emitter:
 
     # Anchor, Tag, and Scalar processors.
 
-    static func process_anchor(indicator):
+    func process_anchor(indicator):
         if event.anchor == null:
             prepared_anchor = null
             return
@@ -4094,7 +4219,7 @@ class Emitter:
             write_indicator(indicator+prepared_anchor, true)
         prepared_anchor = null
 
-    static func process_tag():
+    func process_tag():
         var tag = event.tag
         if event.type == "SCALAR":
             if style == null:
@@ -4112,14 +4237,14 @@ class Emitter:
                 prepared_tag = null
                 return
         if tag == null:
-            SGYPaser.error("tag is not specified")
+            error("tag is not specified")
         if prepared_tag == null:
             prepared_tag = prepare_tag(tag)
         if prepared_tag:
             write_indicator(prepared_tag, true)
         prepared_tag = null
 
-    static func choose_scalar_style():
+    func choose_scalar_style():
         if analysis == null:
             analysis = analyze_scalar(event.value)
         if event.style == '"' or canonical:
@@ -4134,13 +4259,16 @@ class Emitter:
             if (not flow_level and not simple_key_context
                     and analysis.allow_block):
                 return event.style
+        if not event.style and analysis.allow_double_quoted:
+            if "'" in event.value or '\n' in event.value:
+                return '"'
         if not event.style or event.style == '\'':
             if (analysis.allow_single_quoted and
                     not (simple_key_context and analysis.multiline)):
                 return '\''
         return '"'
 
-    static func process_scalar():
+    func process_scalar():
         if analysis == null:
             analysis = analyze_scalar(event.value)
         if style == null:
@@ -4164,28 +4292,28 @@ class Emitter:
 
     # Analyzers.
 
-    static func prepare_version(version):
+    func prepare_version(version):
         var major = version[0]
         var minor = version[1]
         if major != 1:
-            SGYPaser.error("unsupported YAML version: %d.%d" % [major, minor])
+            error("unsupported YAML version: %d.%d" % [major, minor])
         return '%d.%d' % [major, minor]
 
-    static func prepare_tag_handle(handle):
+    func prepare_tag_handle(handle):
         if not handle:
-            SGYPaser.error("tag handle must not be empty")
+            error("tag handle must not be empty")
         if handle[0] != '!' or handle[-1] != '!':
-            SGYPaser.error("tag handle must start and end with '!': %s" % handle)
+            error("tag handle must start and end with '!': %s" % handle)
         for ch in handle.substr(1, handle.size()-1):
             if not (('0' <= ch and ch <= '9') or ('A' <= ch and ch <= 'Z') or ('a' <= ch and ch <= 'z')    \
                     or ch in '-_'):
-                SGYPaser.error("invalid character %c in the tag handle: %s"
+                error("invalid character %c in the tag handle: %s"
                         % [ch, handle])
         return handle
 
-    static func prepare_tag_prefix(prefix):
+    func prepare_tag_prefix(prefix):
         if prefix.is_empty():
-            SGYPaser.error("tag prefix must not be empty")
+            error("tag prefix must not be empty")
         var chunks = []
         var start = 0
         var end = 0
@@ -4208,9 +4336,9 @@ class Emitter:
             chunks.append(prefix.substr(start, end-start))
         return ''.join(chunks)
 
-    static func prepare_tag(tag):
+    func prepare_tag(tag):
         if tag.is_empty():
-            SGYPaser.error("tag must not be empty")
+            error("tag must not be empty")
         if tag == '!':
             return tag
         var handle = null
@@ -4247,17 +4375,17 @@ class Emitter:
         else:
             return '!<%s>' % suffix_text
 
-    static func prepare_anchor(anchor):
+    func prepare_anchor(anchor):
         if not anchor:
-            SGYPaser.error("anchor must not be empty")
+            error("anchor must not be empty")
         for ch in anchor:
             if not (('0' <= ch and ch <= '9') or ('A' <= ch and ch <= 'Z') or ('a' <= ch and ch <= 'z')    \
                     or ch in '-_'):
-                SGYPaser.error("invalid character %c in the anchor: %s"
+                error("invalid character %c in the anchor: %s"
                         % [ch, anchor])
         return anchor
 
-    static func analyze_scalar(scalar :String) -> Dictionary:
+    func analyze_scalar(scalar :String) -> Dictionary:
         # Empty scalar is a special case.
         if scalar.is_empty():
             return {
@@ -4433,21 +4561,21 @@ class Emitter:
 
     # Writers.
 
-    static func flush_stream():
+    func flush_stream():
         if stream.has_method('flush'):
             stream.flush()
 
-    static func write_stream_start():
+    func write_stream_start():
         # Write BOM if needed.
         # if encoding and encoding.begins_with('utf-16'):
         #     stream.write('\uFEFF'.encode(encoding))
         #FIXME
         pass
 
-    static func write_stream_end():
+    func write_stream_end():
         flush_stream()
 
-    static func write_indicator(indicator, need_whitespace,
+    func write_indicator(indicator, need_whitespace,
             p_whitespace=false, p_indention=false):
         var data
         if whitespace or not need_whitespace:
@@ -4462,7 +4590,7 @@ class Emitter:
             data = data.encode(encoding)
         stream.write(data)
 
-    static func write_indent():
+    func write_indent():
         var data
         var temp_indent = indent if indent != null else 0
         if not indention or column > temp_indent   \
@@ -4476,7 +4604,7 @@ class Emitter:
                 data = data.encode(encoding)
             stream.write(data)
 
-    static func write_line_break(data=null):
+    func write_line_break(data=null):
         if data == null:
             data = best_line_break
         whitespace = true
@@ -4487,14 +4615,14 @@ class Emitter:
             data = data.encode(encoding)
         stream.write(data)
 
-    static func write_version_directive(version_text):
+    func write_version_directive(version_text):
         var data = '%%YAML %s' % version_text
         if encoding:
             data = data.encode(encoding)
         stream.write(data)
         write_line_break()
 
-    static func write_tag_directive(handle_text, prefix_text):
+    func write_tag_directive(handle_text, prefix_text):
         var data = '%%TAG %s %s' % [handle_text, prefix_text]
         if encoding:
             data = data.encode(encoding)
@@ -4503,7 +4631,7 @@ class Emitter:
 
     # Scalar streams.
 
-    static func write_single_quoted(text, split=true):
+    func write_single_quoted(text, split=true):
         write_indicator('\'', true)
         var spaces = false
         var breaks = false
@@ -4576,7 +4704,7 @@ class Emitter:
         '\u2029':   'P',
     }
 
-    static func write_double_quoted(text:String, split:=true):
+    func write_double_quoted(text:String, split:=true):
         # if root_context:
         #     if requested_indent != null:
         #         write_line_break()
@@ -4677,7 +4805,7 @@ class Emitter:
             end += 1
         write_indicator('"', false)
 
-    static func determine_block_hints(text):
+    func determine_block_hints(text):
         var hints = ''
         if text:
             if text[0] in ' \n':
@@ -4688,7 +4816,7 @@ class Emitter:
                 hints += '+'
         return hints
 
-    static func write_folded(text):
+    func write_folded(text):
         var hints = determine_block_hints(text)
         write_indicator('>'+hints, true)
         if not hints.is_empty() and hints[-1] == '+':
@@ -4743,7 +4871,7 @@ class Emitter:
                 spaces = (ch == ' ')
             end += 1
 
-    static func write_literal(text):
+    func write_literal(text):
         var hints = determine_block_hints(text)
         write_indicator('|'+hints, true)
         if not hints.is_empty() and hints[-1] == '+':
@@ -4779,7 +4907,7 @@ class Emitter:
                 breaks = (ch in '\n')
             end += 1
 
-    static func write_plain(text, split=true):
+    func write_plain(text, split=true):
         if root_context:
             open_ended = true
         if not text:

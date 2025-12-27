@@ -52,7 +52,7 @@ theme_override_styles/panel = SubResource("StyleBoxFlat_7dm0k")
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-columns = 3
+columns = 4
 column_titles_visible = true
 hide_root = true
 select_mode = 1
@@ -64,15 +64,20 @@ size_flags_horizontal = 3
 [node name="VBoxContainer" type="VBoxContainer" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2"]
 layout_mode = 2
 
-[node name="VBoxContainer" type="VBoxContainer" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="TotalNumberLabel" type="Label" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer/VBoxContainer"]
+[node name="TotalNumberLabel" type="Label" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 32
 text = "Total number of tests: %d"
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 48
+text = "Event"
 
 [node name="PassedLabel" type="RichTextLabel" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer/VBoxContainer"]
 unique_name_in_owner = true
@@ -98,10 +103,43 @@ theme_override_font_sizes/normal_font_size = 32
 bbcode_enabled = true
 text = "Skipped: [color=yellow]%d[/color]"
 
-[node name="MarginContainer" type="MarginContainer" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer"]
+[node name="VBoxContainer2" type="VBoxContainer" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer"]
 layout_mode = 2
+size_flags_vertical = 3
 
-[node name="ReloadPluginButton" type="Button" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer/MarginContainer"]
-unique_name_in_owner = true
+[node name="Label" type="Label" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer/VBoxContainer2"]
 layout_mode = 2
-text = "Reload plugin"
+theme_override_font_sizes/font_size = 48
+text = "JSON"
+
+[node name="JSONPassedLabel" type="RichTextLabel" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer/VBoxContainer2"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 45)
+layout_mode = 2
+theme_override_font_sizes/normal_font_size = 32
+bbcode_enabled = true
+text = "Passed: [color=green]%d[/color]"
+
+[node name="JSONFailedLabel" type="RichTextLabel" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer/VBoxContainer2"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 45)
+layout_mode = 2
+theme_override_font_sizes/normal_font_size = 32
+bbcode_enabled = true
+text = "Failed: [color=red]%d[/color]"
+
+[node name="JSONSkippedLabel" type="RichTextLabel" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer/VBoxContainer2"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 45)
+layout_mode = 2
+theme_override_font_sizes/normal_font_size = 32
+bbcode_enabled = true
+text = "Skipped: [color=yellow]%d[/color]"
+
+[node name="JSONIgnoredLabel" type="RichTextLabel" parent="Panel/MarginContainer/HBoxContainer/PanelContainer2/VBoxContainer/VBoxContainer2"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 45)
+layout_mode = 2
+theme_override_font_sizes/normal_font_size = 32
+bbcode_enabled = true
+text = "Ignored: [color=darkgray]%d[/color]"
