@@ -40,7 +40,7 @@ We will only point out a few key differences here:
     ```yaml
     date: '2002-12-14'
     ```
-    Because godot does not provide a type to represent timestamps, timestamps can only be parsed as strings.  
+    Because Godot does not provide a type to represent timestamps, timestamps can only be parsed as strings.  
     However, during the output process, the `Serializer` will find a string that conforms to the timestamp format.  
     In order to prevent this string from being "mistakenly identified" as a timestamp, it will actively mark this distinction.
     
@@ -68,7 +68,7 @@ We will only point out a few key differences here:
 ## Unstable anchor for Array/Dictionary
 Suppose you have the following YAML file:
 ```yaml
-team_inventory: &inventory
+inventory: &inventory
   - AK47
   - MagicBook
 partner_1:
@@ -81,7 +81,7 @@ When you first load the data, everything seems to work fine.
 
 However, once you want to save the data, it will be saved as...
 ```yaml
-team_inventory:
+inventory:
 - AK47
 - MagicBook
 partner_1:

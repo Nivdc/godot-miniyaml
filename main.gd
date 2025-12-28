@@ -11,7 +11,7 @@ func _ready():
     # YAML.register_class(MyCustomClass, "serialize", "deserialize")
     # var yaml_string = FileAccess.open("./doc/supported_syntax.yaml", FileAccess.READ).get_as_text()
     # pirnt(YAML.load(yaml_string))
-    # print(YAML.dump(YAML.load(yaml_string))
+    # print(YAML.dump(YAML.load(yaml_string)))
     # var dump_1 = YAML.dump(YAML.load(yaml_string))
     # var dump_2 = YAML.dump(YAML.load(YAML.dump(YAML.load(yaml_string))))
     # print(dump_1 == dump_2) # Should be true

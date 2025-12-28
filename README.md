@@ -36,11 +36,12 @@ Porting it to an older version of godot is entirely possible, but I want to try 
 
 ```gdscript
 # Parse YAML
-var data = YAML.parse("key: value\nlist:\n  - item1\n  - item2").get_data()
-# # Or, 
-# var data = YAML.load("key: value\nlist:\n  - item1\n  - item2")
+var data = YAML.load("key: value\nlist:\n  - item1\n  - item2")
 # # Or, For multiple documents
 # var data = YAML.load_all("key: value\nlist:\n  - item1\n  - item2")
+# # Or, 
+# var data = YAML.parse("key: value\nlist:\n  - item1\n  - item2").get_data()
+
 
 print(data.key)  # Outputs: value
 print(data.list) # Outputs: [item1, item2]
@@ -55,8 +56,8 @@ YAML.save_file(file_data, "user://dumped_supported_syntax.yaml")
 
 # Custom class
 YAML.register_class(MyCustomClass)
-# # Or,
-# YAML.register_class(MyCustomClass, "serialize", "deserialize")
+# # Or, 
+# YAML.register_class(MyCustomClass, "to_dict", "_from_dict")
 YAML.unregister_class(MyCustomClass)
 ```
 For more information, be sure to check out  
