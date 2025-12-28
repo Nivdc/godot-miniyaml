@@ -66,6 +66,8 @@ For more information, be sure to check out
 [Supported variable types](./doc/supported_syntax.yaml)  
 [Dump Example](./doc/dumped_supported_syntax.yaml)  
 
+[Namespace pollution](https://github.com/Nivdc/godot-miniyaml/issues/1)
+
 ## Known issues
 - If you are still using `soft_assert` in your project, you might get stuck in a dangerous infinite loop when loading some faulty files.  
 `soft_assert` is purely for testing purposes; you should use `assert`.  
