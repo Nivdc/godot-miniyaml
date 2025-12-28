@@ -7,7 +7,7 @@ However, the output data will always have some subtle differences from the input
 You should take some time to compare the [input](supported_syntax.yaml) and [output](dumped_supported_syntax.yaml) files to make sure you fully understand the differences.  
 
 We will only point out a few key differences here:
-1. The precision of `float` numbers within certain variables will change.
+1. The precision of `float` numbers within certain variables will change.  
     For example:
     ```yaml
     Quaternion: !Quaternion {x: 3.1415927,y: 6.2831855,z: 12.566371,w: 25.132742}
@@ -16,7 +16,7 @@ We will only point out a few key differences here:
     ```yaml
     Quaternion: !Quaternion {x: 3.14159274101257, y: 6.28318548202515, z: 12.5663709640503,  w: 25.1327419281006}
     ```
-    This is a strange behavior of the engine; in fact, if you test the following code:
+    This is a strange behavior of the engine; in fact, if you test the following code:  
     ```gdscript
     var f = 3.1415927
     var q = Quaternion(f,f,f,f)
@@ -31,7 +31,7 @@ We will only point out a few key differences here:
     Note that this issue can also reduce `float` precision in some cases.  
     Be sure to review the output examples of **PackedFloat64Array** and **PackedFloat32Array** to ensure the format meets your expectations.
 
-3. `Timestamps` will dump as `String`
+3. `Timestamps` will dump as `String`  
     For example:
     ```yaml
     date: 2002-12-14
@@ -47,7 +47,7 @@ We will only point out a few key differences here:
     What we ultimately see is a string enclosed in single quotes.  
     This usually doesn't cause any problems unless you intend to submit the output YAML to another parser, in which case the timestamp will be lost after conversion.  
 
-5. The `Array` will be output in a compact format
+5. The `Array` will be output in a compact format  
     For example:
     ```yaml
     fruits:
@@ -125,6 +125,8 @@ The YAML specification allows self-references, and MiniYAML can perfectly handle
 
 However, when using custom classes, you must ensure that your custom class can construct an empty object;  
 In other words, the parameters of your `_init` function must have default values.  
+
+<br>
 
 And, you can avoid using this circular reference design.  
 
