@@ -8,7 +8,7 @@ func _ready():
     exec_tests()
 
     # YAML.register_class(MyCustomClass)
-    # YAML.register_class(MyCustomClass, "serialize", "deserialize")
+    # YAML.register_class(MyCustomClass, "to_dict", "_from_dict")
     # var yaml_string = FileAccess.open("./doc/supported_syntax.yaml", FileAccess.READ).get_as_text()
     # pirnt(YAML.load(yaml_string))
     # print(YAML.dump(YAML.load(yaml_string)))
