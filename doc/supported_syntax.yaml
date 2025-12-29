@@ -73,7 +73,6 @@ nested_flow_style_array: ["hello", 10, {foo: bar}, [4.20, 6.9]]
 nested_flow_style_dictionary: { key1: {foo: 'bar'}, key2: [4.20, 6.9] }
 
 # Anchors and aliases get resolved during parsing
-# Note that anchors may not remain unchanged after the dump.
 anchor_example: &anchor_name
   key1: value1
   key2: value2
