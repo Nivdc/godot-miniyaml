@@ -65,42 +65,6 @@ We will only point out a few key differences here:
     Both formats are valid and can be parsed correctly, so I tend to retain the behavior of PyYAML.  
     If you really dislike this output format, you can set `indentless` to `false` in `func expect_block_sequence()`. Then the output will be more normal.  
 
-## Unstable anchor for Array/Dictionary
-Suppose you have the following YAML file:
-```yaml
-inventory: &inventory
-  - AK47
-  - MagicBook
-partner_1:
-  team_inventory: *inventory
-partner_2:
-  team_inventory: *inventory
-```
-When you first load the data, everything seems to work fine.
-`partner_1` and `partner_2` do indeed share the same inventory.
-
-However, once you want to save the data, it will be saved as...
-```yaml
-inventory:
-- AK47
-- MagicBook
-partner_1:
-  team_inventory:
-  - AK47
-  - MagicBook
-partner_2:
-  team_inventory:
-  - AK47
-  - MagicBook
-```
-
-Did you notice anything different?   
-`team_inventory` has become two completely different arrays.  
-When you reload the data, they will NOT be the same array.  
-
-**Actually, there's a solution—it's being worked on.**
-
-
 ## Self-referencing problem
 Suppose you have the following YAML file:
 ```yaml

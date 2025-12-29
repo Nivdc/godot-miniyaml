@@ -24,7 +24,7 @@
 #  Lience: MIT (https://opensource.org/licenses/mit-license.php) #
 #  Repository: https://github.com/Nivdc/godot-miniyaml           #
 #                                                                #
-#  Version: 0.1.1                                                #
+#  Version: 0.1.2                                                #
 #                                                                #
 #  NOTE: This version is not a stable version,                   #
 #        and the code quality is far from optimal.               #
@@ -3439,7 +3439,8 @@ class Representer:
         if ignore_aliases(data):
             alias_key = null
         else:
-            alias_key = data.get_instance_id()
+            alias_key = create_alias_key(data)
+
         if alias_key != null:
             if alias_key in represented_objects:
                 var node = represented_objects[alias_key]
@@ -3458,6 +3459,16 @@ class Representer:
         else:
             node = YAMLNode.new("SCALAR", null, str(data))
         return node
+
+    func create_alias_key(data):
+        var alias_key = hash(data)
+        var previous_same_hash_data_index = object_keeper.find_custom(func(d): return hash(d) == alias_key)
+        if previous_same_hash_data_index != -1:
+            if is_same(data, object_keeper.get(previous_same_hash_data_index)):
+                return alias_key
+            else:
+                return create_alias_key(hash(data))
+        return alias_key
 
     static func add_representer(data_type, representer):
         yaml_representers[data_type] = representer
@@ -3525,7 +3536,8 @@ class Representer:
         return node
 
     func ignore_aliases(data):
-        if type_string(typeof(data)) == "Object":
+        if type_string(typeof(data)) in ("Object Dictionary Array PackedByteArray PackedInt32Array PackedInt64Array PackedFloat32Array " 
+        + "PackedFloat64Array PackedStringArray PackedVector2Array PackedVector3Array PackedVector4Array PackedColorArray").split(' '):
             return false
         return true
 

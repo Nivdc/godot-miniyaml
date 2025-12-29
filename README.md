@@ -1,6 +1,6 @@
 # MiniYAML
 
-> ⚠️ **Experimental / Unstable (v0.1.1)**
+> ⚠️ **Experimental / Unstable (v0.1.2)**
 >
 > This is an early preview release.  
 > Although most PyYAML features are implemented, the project has not yet  
@@ -25,7 +25,7 @@ If you want a more stable plugin, you should try it.
 Requires godot **4.5** or higher.  
 Porting it to an older version of godot is entirely possible, but I want to try out some new features while porting this plugin. So... that's it.
 
-- You can use it simply by [downloading](https://github.com/Nivdc/godot-miniyaml/releases/download/v0.1.1/addons.zip) the `addons.zip` file from the Releases page and then extracting it to your project folder.  
+- You can use it simply by [downloading](https://github.com/Nivdc/godot-miniyaml/releases/download/v0.1.2/addons.zip) the `addons.zip` file from the Releases page and then extracting it to your project folder.  
 - Or, you can download this Git repository and copy the `addons` folder into your project.  
 **Just remember to replace `soft_assert` with `assert` on line 130 of `miniyaml.gd`.**
 - Or, you can directly download `addons/miniyaml/miniyaml.gd` to your project and then use it like an autoloaded singleton class.  
@@ -92,7 +92,7 @@ And if you want to fix a bug, [ruamel-yaml](https://yaml.dev/doc/ruamel.yaml/) m
 ## Expected test failure
 This plugin uses the official [YAML Test Suite](https://github.com/yaml/yaml-test-suite) for testing.
 
-In the current version `0.1.1`, 
+In the current version `0.1.2`, 
 
 The event test (used to test the `Scanner` and `Parser`) results are [consistent with PyYAML](https://matrix.yaml.info/).  
 Passed: **329**, Filed: **73**.

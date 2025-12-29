@@ -57,12 +57,10 @@ nested_flow_style_dictionary:
   key2:
   - 4.2
   - 6.9
-anchor_example:
+anchor_example: &id001
   key1: value1
   key2: value2
-alias_example:
-  key1: value1
-  key2: value2
+alias_example: *id001
 base:
   name: John Doe
   age: 30
@@ -72,8 +70,8 @@ merge_example:
   occupation: Developer
 binary_data: !PackedByteArray |-
   R0lGODlhDAAMAIQAAP//9/X17unp5WZmZgAAAOfn515eXvPz7Y6OjuDg4J+fn5OTk6enp56enmleECcgggoBADs=
-game_object: &id001 !MyCustomClass
-  self_ref: *id001
+game_object: &id002 !MyCustomClass
+  self_ref: *id002
   alias: Hero
   health: 100
   color: !Color 'ffffffff'
