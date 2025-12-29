@@ -98,13 +98,7 @@ Did you notice anything different?
 `team_inventory` has become two completely different arrays.  
 When you reload the data, they will NOT be the same array.  
 
-#### Why did this happen?
-While GDScript does pass Array/Dictionary by reference, but I haven't been able to find a way to determine if two arrays (or dictionaries) come from the same reference.  
-If you have a way, please let me know.  
-
-#### How to fix it?
-Be careful to avoid this situation; if necessary, use a custom class to wrap the array and dictionary.  
-MiniYAML can correctly handle object references.  
+**Actually, there's a solution—it's being worked on.**
 
 
 ## Self-referencing problem
