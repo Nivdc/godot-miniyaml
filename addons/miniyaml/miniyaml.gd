@@ -24,7 +24,7 @@
 #  Lience: MIT (https://opensource.org/licenses/mit-license.php) #
 #  Repository: https://github.com/Nivdc/godot-miniyaml           #
 #                                                                #
-#  Version: 0.1.0                                                #
+#  Version: 0.1.1                                                #
 #                                                                #
 #  NOTE: This version is not a stable version,                   #
 #        and the code quality is far from optimal.               #
@@ -3571,7 +3571,7 @@ class Representer:
 
     func represent_godot_object(data, tag, serialize):
         if not serialize.is_empty() and data.has_method(serialize):
-            return represent_mapping(tag, data.serialize())
+            return represent_mapping(tag, data[serialize].call())
         else:
             var _init_args_dict = {}
             var instance_property_list = data.get_property_list().map(func(dict): return dict.name)
