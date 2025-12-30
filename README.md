@@ -12,6 +12,8 @@
 MiniYAML is a GDScript port of [PyYAML](https://github.com/yaml/pyyaml), It also contains some code from [ruamel-yaml](https://yaml.dev/doc/ruamel.yaml/).  
 "Mini" refers to both file size and structure; it's a single-file plugin.
 
+[FOR_YAML_BEGINNERS](./doc/FOR_YAML_BEGINNERS.md)
+
 And you can even use the underscore `_` in numbers!  
 Just like you use in GDScript. AWESOME! 😍
 
@@ -104,7 +106,7 @@ Otherwise, it's best to just leave them there.
 <br>
 
 The result of the JSON test (used to test the `Composer`,`Resolver` and `Constructor`) is:  
-Passed: **280**, Filed:**79**, Sipped:**14**, Ignored:**29**  
+Passed: **280**, Filed:**79**, Skipped:**14**, Ignored:**29**  
 
 We ignored **29** tests because these tests did not provide the corresponding JSON files.  
 (Some of these may be unable to provide JSON files because the test data is incorrect.)  
