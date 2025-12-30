@@ -1,10 +1,10 @@
-> The Prophet cries out:
-> Behold — behold!
-> YAML, the god of data serialization, has descended upon this world,
-> and shall lead us to ascend into Its kingdom!
+> The Prophet cries out:  
+> Behold — behold!  
+> YAML, the god of data serialization, has descended upon this world,  
+> and shall lead us to ascend into Its kingdom!  
 
-> I believe YAML is the ultimate answer to serialization and deserialization —
-> or at least, it comes very close.
+> I believe YAML is the ultimate answer to serialization and deserialization —  
+> or at least, it comes very close.  
 
 ## What Is YAML？
 
@@ -48,16 +48,16 @@ age: 18
 ```
 ... suspiciously like this?
 
-**You thought you were *only* writing your favorite language.
+**You thought you were *only* writing your favorite language.  
 You were also writing YAML.**
 
 ## What Exists in Its Kingdom?
 I cannot remember how many times I have written code just to unpack JSON.
 
-Assigning fields one by one.
-Writing loaders.
-Mapping dictionaries into objects.
-Or wrapping raw data with clever proxies.
+Assigning fields one by one.  
+Writing loaders.  
+Mapping dictionaries into objects.  
+Or wrapping raw data with clever proxies.  
 
 If this were JSON, it would probably look like this:
 ```json
@@ -68,17 +68,17 @@ If this were JSON, it would probably look like this:
 ```
 So what do you do with this JSON?
 
-You load it.
-You unpack it.
-You assign its fields one by one.
+You load it.  
+You unpack it.  
+You assign its fields one by one.  
 
-Somewhere, in your code, you must say:
+Somewhere, in your code, you must say:  
 
-“This data… is a Person.”
+“This data… is a Person.”  
 
-The data itself never tells you that.
-It is silent.
-It is anonymous.
+The data itself never tells you that.  
+It is silent.  
+It is anonymous.  
 
 
 ```json
@@ -88,21 +88,21 @@ It is anonymous.
 }
 ```
 
-This could be a Person.
-It could be an Enemy.
-It could be a SaveFile.
-The structure alone does not know.
+This could be a Person.  
+It could be an Enemy.  
+It could be a SaveFile.  
+The structure alone does not know.  
 
-So you write glue code.
-Loaders.
-Mappers.
-Adapters.
-Endless `from_json` functions.
+So you write glue code.  
+Loaders.  
+Mappers.  
+Adapters.  
+Endless `from_json` functions.  
 
 And then YAML quietly asks a different question:
 
-What if the data could speak for itself?
-What if the data could say what it *is*?
+What if the data could speak for itself?  
+What if the data could say what it *is*?  
 
 ```yaml
 !Person
@@ -110,14 +110,14 @@ name: Alice
 age: 18
 ```
 
-This is not just data anymore.
-This is identity.
+This is not just data anymore.  
+This is identity.  
 
-YAML does not force meaning upon your data.
-It allows your data to declare its own meaning.
+YAML does not force meaning upon your data.  
+It allows your data to declare its own meaning.  
 
-**Everything can be described as data.
-All data has meaning.
+**Everything can be described as data.  
+All data has meaning.  
 YAML makes it visible.**
 
 ## How Do We Reach Its Kingdom?
@@ -130,17 +130,17 @@ name: Alice
 age: 18
 ```
 
-Suppose there is no parser yet,
-and you must write one yourself.
+Suppose there is no parser yet,  
+and you must write one yourself.  
 
 How would you do it?
 
-Have you realized that—
-because the data declares its own identity,
-you can recognize its type during construction,
-and *reflectively* populate an object with it?
+Have you realized that—  
+because the data declares its own identity,  
+you can recognize its type during construction,  
+and *reflectively* populate an object with it?  
 
-**YES**
+**YES**  
 That is exactly how it works.
 
 ```gdscript
@@ -176,16 +176,16 @@ class Person:
 ## Epilogue
 I do not wish to deceive anyone.
 
-The world I have glimpsed is so beautiful
-that I do not believe it reveals itself without a cost.
+The world I have glimpsed is so beautiful  
+that I do not believe it reveals itself without a cost.  
 
-I have not performed stress tests yet,
-but there is reason to suspect that, in practice,
+I have not performed stress tests yet,  
+but there is reason to suspect that, in practice,  
 we may not be able to support extremely large-scale typed data processing.
 
-And yet, I also believe this limitation will one day be overcome.
-When that happens, everything will be different.
+And yet, I also believe this limitation will one day be overcome.  
+When that happens, everything will be different.  
 
-> To those who have read this far:
-> I know you cannot go back now.
-> You can no longer return to a world without **YAML**.
+> To those who have read this far:  
+> I know you cannot go back now.  
+> You can no longer return to a world without **YAML**.  
