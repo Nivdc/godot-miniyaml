@@ -8,6 +8,7 @@ TODO:
 <br>
 - Provide a distribution package that doesn’t pollute the namespace  
 - Create utility classes to reduce code duplication and offer richer reflection  capabilities  
+- Added better behavior control settings  
 - (Just for fun) Let's try dump miniyaml  
 <br>
 - Fix and provide full support for tags  
