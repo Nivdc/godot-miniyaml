@@ -1,6 +1,6 @@
 > The Prophet cries out:  
 > Behold — behold!  
-> YAML, the god of data serialization, has descended upon this world,  
+> **YAML**, the god of data serialization, has descended upon this world,  
 > and shall lead us to ascend into Its kingdom!  
 
 > I believe YAML is the ultimate answer to serialization and deserialization —  
@@ -28,7 +28,7 @@ Let’s choose something simple: a `Person`.
 
 You give it a `name`.  
 You give it an `age`.  
-Then you are about to write a method — `hello_world()`.
+Then you are about to write a method — `hello_world()`...
 
 Wait.
 
@@ -97,7 +97,9 @@ So you write glue code.
 Loaders.  
 Mappers.  
 Adapters.  
-Endless `from_json` functions.  
+Endless `from_json` functions...  
+
+<br>
 
 And then YAML quietly asks a different question:
 
@@ -135,12 +137,14 @@ and you must write one yourself.
 
 How would you do it?
 
+<br>
+
 Have you realized that—  
 because the data declares its own identity,  
 you can recognize its type during construction,  
 and *reflectively* populate an object with it?  
 
-**YES**  
+**YES!**  
 That is exactly how it works.
 
 ```gdscript
@@ -171,7 +175,8 @@ class Person:
 
 <br>
 
-**THIS IS IT'S KINGDOM!** 
+**THIS IS IT'S KINGDOM.  
+ITS KINGDOM HAS COME.** 
 
 ## Epilogue
 I do not wish to deceive anyone.
