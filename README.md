@@ -10,7 +10,7 @@
 > Bugs, edge cases, and incompatibilities are expected.  
 
 MiniYAML is a GDScript port of [PyYAML](https://github.com/yaml/pyyaml), It also contains some code from [ruamel-yaml](https://yaml.dev/doc/ruamel.yaml/).  
-"Mini" refers to both file size and structure; it's a single-file plugin.
+Full power. One .gd file. That’s it.
 
 [FOR_YAML_BEGINNERS](./doc/FOR_YAML_BEGINNERS.md)
 
