@@ -3461,13 +3461,10 @@ class Representer:
         return node
 
     func create_alias_key(data):
-        var alias_key = hash(data)
-        var previous_same_hash_data_index = object_keeper.find_custom(func(d): return hash(d) == alias_key)
-        if previous_same_hash_data_index != -1:
-            if is_same(data, object_keeper.get(previous_same_hash_data_index)):
-                return alias_key
-            else:
-                return create_alias_key(hash(data))
+        var alias_key = object_keeper.find_custom(is_same.bind(data))
+        if alias_key == -1:
+            alias_key = object_keeper.size()
+            object_keeper.append(data)
         return alias_key
 
     static func add_representer(data_type, representer):
