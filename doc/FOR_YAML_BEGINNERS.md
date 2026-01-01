@@ -184,6 +184,22 @@ I do not wish to deceive anyone.
 The world I have glimpsed is so beautiful  
 that I do not believe it reveals itself without a cost.  
 
+Because the constructions YAML enables are so powerful,  
+it is easy to leave security vulnerabilities in deserialization code.  
+There will always be YAML input you did not expect —  
+and those surprises may break your assumptions, or your system.
+
+Therefore:  
+Do **NOT** load typed YAML from untrusted sources.  
+Do not apply the type system everywhere without restraint.
+
+Master it.  
+Do not let it master you.
+
+<br>
+
+And there is also the matter of performance.
+
 I have not performed stress tests yet,  
 but there is reason to suspect that, in practice,  
 we may not be able to support extremely large-scale typed data processing.
