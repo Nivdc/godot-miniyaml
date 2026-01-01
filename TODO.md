@@ -7,6 +7,7 @@ TODO:
 - Allow loading data with missing fields  
 - Try to fix infinite loop issues.  
 <br>
+
 - Provide a distribution package that doesn’t pollute the namespace  
 - Create utility classes to reduce code duplication and offer richer reflection  capabilities  
 - Added better behavior control settings  
@@ -18,6 +19,7 @@ TODO:
 
 - Fix and provide full support for tags  
 <br>
+
 - Since typed JSON is essentially YAML, doesn’t that mean that as long as Godot’s JSON can provide typed data, we could support all engine data by inserting a thin middleware layer?  
 - Wild idea (or particularly unsafe?): **What if we put `Callable` inside YAML?**
 <br>
