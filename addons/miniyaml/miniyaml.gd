@@ -70,6 +70,10 @@ var errors :Array[String]
 var representer := Representer.new()
 var constructor := Constructor.new()
 
+var setting={
+    use_soft_assert=false,
+}
+
 func _init():
     errors = []
     Resolver.init_yaml_implicit_resolvers()
@@ -78,36 +82,21 @@ func _init():
 
 
 func parse(yaml_string) -> YAMLResult:
-    return YAMLResult.new(load_all(yaml_string), errors)
+    setting.use_soft_assert = true
+    var result = YAMLResult.new(load_all(yaml_string), errors)
+    setting.use_soft_assert = false
+    return result
 
 func load(yaml_string) -> Variant:
-    errors = []
-    var scanner  = Scanner.new(yaml_string)
-    var parser   = Parser.new(scanner)
-    var composer = Composer.new(parser)
-    scanner.error_occurred.connect(error)
-    parser.error_occurred.connect(error)
-    composer.error_occurred.connect(error)
-    constructor.composer = composer
+    _init_loader(yaml_string)
     var result = constructor.get_single_data()
     return result if not has_error() else null
 
 func load_all(yaml_string):
-    errors = []
-    var scanner  = Scanner.new(yaml_string)
-    var parser   = Parser.new(scanner)
-    var composer = Composer.new(parser)
-    scanner.error_occurred.connect(error)
-    parser.error_occurred.connect(error)
-    composer.error_occurred.connect(error)
-    constructor.composer = composer
+    _init_loader(yaml_string)
     var result = []
-    while constructor.check_data():
-        result.append(constructor.get_data())
-    if not has_error():
-        return result if result.size()>1 or result.is_empty() else result[0]
-    else:
-        return null
+    while constructor.check_data(): result.append(constructor.get_data())
+    return null if has_error() else result if result.size()>1 or result.is_empty() else result[0]
 
 func dump(p_var:Variant) -> String:
     errors = []
@@ -118,17 +107,13 @@ func dump(p_var:Variant) -> String:
     representer.root_node_emerged.connect(serializer.serialize)
     serializer.event_emerged.connect(emitter.emit)
     representer.represent(p_var)
+    representer.root_node_emerged.disconnect(serializer.serialize)
     return emitter.stream.cache
-
-func soft_assert(condition: bool, message: String = "Soft assertion failed"):
-    if not condition: push_error("MiniYAML Error: \n" + message)
 
 func error(messages):
     var mes = '\n'.join(messages) if messages is Array else messages
-    # I strongly recommend that you replace soft_assert with the actual assert.
-    # Unless you are testing purposes or genuinely want to use a faulty YAML file.
-    soft_assert(false, mes)
-    # assert(false, "MiniYAML Error: \n" + mes)
+    if setting.use_soft_assert: push_error("MiniYAML Error: \n" + mes)
+    else: assert(false, "MiniYAML Error: \n" + mes)
     errors.append(mes)
 
 func warn(message: String = "Something is wrong"):
@@ -200,6 +185,7 @@ func unregister_class(p_class:Script, p_tag=""):
     representer.yaml_representers.erase(class_global_name)
 
 func parse_to_events(yaml_string :String):
+    setting.use_soft_assert = true
     errors = []
     var scanner = Scanner.new(yaml_string)
     var parser = Parser.new(scanner)
@@ -242,6 +228,16 @@ func parse_to_events(yaml_string :String):
                 short_events.append("=VAL %s%s%s%s" % [anchor, tag, style, value])
     return ('\n'.join(short_events)) + '\n'
 
+
+func _init_loader(yaml_string):
+    errors = []
+    var scanner  = Scanner.new(yaml_string)
+    var parser   = Parser.new(scanner)
+    var composer = Composer.new(parser)
+    scanner.error_occurred.connect(error)
+    parser.error_occurred.connect(error)
+    composer.error_occurred.connect(error)
+    constructor.composer = composer
 
 ##############################################################
 #                                                            #
@@ -2772,6 +2768,8 @@ class Constructor:
     # var state_generators = []
     var deep_construct = false
 
+    var allow_omitted_arguments = true
+
     var composer :Composer
 
     func _init(p_composer=null):
@@ -3158,6 +3156,7 @@ class Constructor:
             var _init_args_names = sml.get(sml.find_custom(func(dict): return dict.name == "_init")).args.map(func(dict): return dict.name)
             for key in _init_args_names:
                 if key.trim_prefix("p_") in instance_property_list:
+                    if not state.has(key.trim_prefix("p_")) and allow_omitted_arguments: continue
                     data.set(key.trim_prefix("p_"), state[key.trim_prefix("p_")])
                 else:
                     error("while constructing a godot object",
@@ -3445,7 +3444,7 @@ class Representer:
             if alias_key in represented_objects:
                 var node = represented_objects[alias_key]
                 return node
-            object_keeper.append(data)
+            # object_keeper.append(data)
 
         var node
         var data_type = type_string(typeof(data)) if type_string(typeof(data)) != "Object" else \
