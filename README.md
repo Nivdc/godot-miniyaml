@@ -27,7 +27,8 @@ If you want a more stable plugin, you should try it.
 Requires godot **4.5** or higher.  
 Porting it to an older version of godot is entirely possible, but I want to try out some new features while porting this plugin. So... that's it.
 
-- You can use it simply by [downloading](https://github.com/Nivdc/godot-miniyaml/releases/download/v0.1.3/addons.zip) the `addons.zip` file from the Releases page and then extracting it to your project folder.  You should use this file since it solves the namespace pollution problem.
+- You can use it simply by [downloading](https://github.com/Nivdc/godot-miniyaml/releases/download/v0.1.3/miniyaml-v0.1.3.zip) the `addons.zip` file from the Releases page and then extracting it to your project folder.  
+  You should use this file since it solves the [namespace pollution](https://github.com/Nivdc/godot-miniyaml/issues/1) problem.
 - For those who want to embed this plugin, you should download the repository, replace the prefix in the `build_dist.py` script, run it, and use the generated script as a regular class to solve the same problem.
 
 ## Quick Usage
@@ -65,10 +66,11 @@ For more information, be sure to check out
 [Dump Example](./doc/dumped_supported_syntax.yaml)  
 
 ## Known issues
-- When loading certain (very rare) malformed YAML files, this plugin may enter an infinite loop.
-This is caused by differences between Python’s exception-based error handling and Godot’s error handling model.
-Some safeguards have already been implemented to reduce the risk of this issue. However, a complete solution requires architectural changes, which will take additional time.
-If you encounter such a case, please consider reporting it along with the problematic YAML file.
+- When loading certain (very rare) malformed YAML files, this plugin may enter an infinite loop.  
+This is caused by differences between Python’s exception-based error handling and Godot’s error handling model.  
+Some safeguards have already been implemented to reduce the risk of this issue.  
+However, a complete solution requires architectural changes, which will take additional time.  
+If you encounter such a case, please consider reporting it along with the problematic YAML file.  
 
 - Some error report messages are very ugly.  
 Yeah... because I really don't have the patience to copy error messages one-to-one.  
