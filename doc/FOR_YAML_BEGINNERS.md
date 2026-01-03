@@ -185,7 +185,7 @@ The world I have glimpsed is so beautiful
 that I do not believe it reveals itself without a cost.  
 
 Because the constructions YAML enables are so powerful,  
-it is easy to leave security vulnerabilities in deserialization code.  
+it is **EASY** to leave security vulnerabilities in deserialization code.  
 There will always be YAML input you did not expect —  
 and those surprises may break your assumptions, or your system.
 

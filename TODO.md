@@ -8,7 +8,7 @@ TODO:
 - [ ] Try to fix infinite loop issues.  
 <br>
 - [ ] Provide a distribution package that doesn’t pollute the namespace  
-- [ ] Create utility classes to reduce code duplication and offer richer ref lecti on  capabilities  
+- [ ] Create utility classes to reduce code duplication and offer richer reflecti on  capabilities  
 - [ ] Added better behavior control settings  
 - [ ] (Just for fun) Let's try dump miniyaml  
 <br>
