@@ -5012,7 +5012,7 @@ class StreamWrapper:
         print(cache)
 
 class Util:
-    static func get_init_args_names(cls: Script) -> Array[String]:
+    static func get_init_args_names(cls: Script) -> Array:
         var sml = cls.get_script_method_list()
         var _init_args_names = sml.get(sml.find_custom(func(dict): return dict.name == "_init")).args.map(func(dict): return dict.name)
         return _init_args_names
