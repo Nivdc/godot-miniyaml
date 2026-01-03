@@ -1,0 +1,38 @@
+name: Build Package on Tag
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get tag name
+        id: get_tag
+        run: echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Run custom build script
+        run: python build-dist.py
+
+      - name: Package into zip
+        run: |
+          cd dist
+          zip -9 -r ./miniyaml-${{ env.TAG }}.zip .
+
+      # - name: Upload as artifact (optional)
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: my-app-package
+      #     path: my-app-${{ env.TAG }}.zip
+
+      - name: Create GitHub Release and upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/miniyaml-${{ env.TAG }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
