@@ -17,7 +17,7 @@ jobs:
         run: echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
       - name: Run custom build script
-        run: python build-dist.py
+        run: python build_dist.py
 
       - name: Package into zip
         run: |
