@@ -24,7 +24,7 @@
 #  Lience: MIT (https://opensource.org/licenses/mit-license.php) #
 #  Repository: https://github.com/Nivdc/godot-miniyaml           #
 #                                                                #
-#  Version: 0.1.2                                                #
+#  Version: 0.1.3                                                #
 #                                                                #
 #  NOTE: This version is not a stable version,                   #
 #        and the code quality is far from optimal.               #
@@ -43,7 +43,7 @@
 extends Node
 # class_name YAML extends RefCounted
 # # You can replace this comment, and use MiniYAML as an autoloaded singleton class.
-# # Or you can use it as a normal class, just remember you should NOT create multiple YAML instances, 
+# # Or you can use it as a regular class, just remember you should NOT create multiple YAML instances, 
 # # as this can cause errors in the objects registered to the Representer and Constructor.
 
 class YAMLResult:
@@ -95,7 +95,7 @@ func load(yaml_string) -> Variant:
 func load_all(yaml_string):
     _init_loader(yaml_string)
     var result = []
-    while constructor.check_data(): result.append(constructor.get_data())
+    while constructor.check_data() and not has_error(): result.append(constructor.get_data())
     return null if has_error() else result if result.size()>1 or result.is_empty() else result[0]
 
 func dump(p_var:Variant) -> String:
@@ -1459,8 +1459,7 @@ class Scanner:
             chunks.append_array(scan_flow_scalar_spaces(double, start_mark))
             chunks.append_array(scan_flow_scalar_non_spaces(double, start_mark))
 
-            if done: # This will never happen unless there is an error.
-                return
+            if done: return # This will never happen unless there is an error.
 
         forward()
         var end_mark = get_mark()
@@ -1833,6 +1832,8 @@ class Parser:
     signal error_occurred(error_messages)
     func error(...messages):
         error_occurred.emit(messages)
+        states.clear()
+        state = null
 
     func check_event(...event_types):
         # Check the type of the next event.
@@ -1894,6 +1895,7 @@ class Parser:
             tag_handles = DEFAULT_TAGS
             var token = scanner.peek_token()
             var is_explicit = false
+            if token==null: return # This will never happen unless there is an error.
             var event = Event.new("DOCUMENT_START", is_explicit, token.start_mark, token.end_mark)
 
             # Prepare the next state.
@@ -1925,6 +1927,7 @@ class Parser:
                 error("expected '<document start>', but found %s" % token.type,
                         token.start_mark)
             token = scanner.get_token()
+            if token==null: return # This will never happen unless there is an error.
             var end_mark = token.end_mark
             var is_explicit = true
             event = Event.new("DOCUMENT_START", is_explicit, version, tags, start_mark, end_mark)
@@ -2467,6 +2470,7 @@ class Composer:
                         % anchor, event.start_mark)
             return anchors[anchor]
         event = parser.peek_event()
+        if event == null: return # This will never happen unless there is an error.
         anchor = event.anchor
         if anchor != null:
             if anchor in anchors:
@@ -2506,9 +2510,10 @@ class Composer:
         if anchor != null:
             anchors[anchor] = node
         var index = 0
-        while not parser.check_event("SEQUENCE_END"):
+        while not parser.check_event("SEQUENCE_END") and parser.state!=null:
             node.value.append(compose_node(node, index))
             index += 1
+        if parser.state==null: return # This will never happen unless there is an error.
         var end_event = parser.get_event()
         node.end_mark = end_event.end_mark
         return node
@@ -2522,7 +2527,7 @@ class Composer:
                 start_event.start_mark, start_event.end_mark)
         if anchor != null:
             anchors[anchor] = node
-        while not parser.check_event("MAPPING_END"):
+        while not parser.check_event("MAPPING_END") and parser.state!=null:
             #key_event = parser.peek_event()
             var item_key = compose_node(node, null)
             #if item_key in node.value:
@@ -2531,6 +2536,7 @@ class Composer:
             var item_value = compose_node(node, item_key)
             #node.value[item_key] = item_value
             node.value.append([item_key, item_value])
+        if parser.state==null: return # This will never happen unless there is an error.
         var end_event = parser.get_event()
         node.end_mark = end_event.end_mark
         return node
@@ -2836,13 +2842,14 @@ class Constructor:
         #     for generator in _state_generators:
         #         for _dummy in generator:
         #             pass
-        constructed_objects = {}
-        recursive_objects = {}
+        constructed_objects.clear()
+        recursive_objects.clear()
         deep_construct = false
         return data
 
     # NOTE: The 'deep' parameter currently has no effect.
     func construct_object(node, deep=false):
+        if node==null: return # This will never happen unless there is an error.
         var old_deep
         if node in constructed_objects:
             return constructed_objects[node]
@@ -3152,8 +3159,7 @@ class Constructor:
             data[deserialize].call(state)
         else:
             var instance_property_list = data.get_property_list().map(func(dict): return dict.name)
-            var sml = cls.get_script_method_list()
-            var _init_args_names = sml.get(sml.find_custom(func(dict): return dict.name == "_init")).args.map(func(dict): return dict.name)
+            var _init_args_names = Util.get_init_args_names(cls)
             for key in _init_args_names:
                 if key.trim_prefix("p_") in instance_property_list:
                     if not state.has(key.trim_prefix("p_")) and allow_omitted_arguments: continue
@@ -3357,7 +3363,7 @@ class Representer:
     static var yaml_multi_representers = {}
     
     var represented_objects = {}
-    var object_keeper = []
+    var object_keeper :Dictionary[String, Array] = {}
     var alias_key = null
 
     var default_style
@@ -3430,8 +3436,8 @@ class Representer:
         var node = represent_data(data)
         # Serializer.serialize(node)
         root_node_emerged.emit(node)
-        represented_objects = {}
-        object_keeper = []
+        represented_objects.clear()
+        object_keeper.clear()
         alias_key = null
 
     func represent_data(data):
@@ -3444,11 +3450,9 @@ class Representer:
             if alias_key in represented_objects:
                 var node = represented_objects[alias_key]
                 return node
-            # object_keeper.append(data)
 
         var node
-        var data_type = type_string(typeof(data)) if type_string(typeof(data)) != "Object" else \
-            data.get_script().get_global_name() if data.get_script()!=null else data.get_class()
+        var data_type = Util.inferType(data)
         if data_type in yaml_representers:
             node = yaml_representers[data_type].call(data)
         elif null in yaml_multi_representers:
@@ -3460,10 +3464,14 @@ class Representer:
         return node
 
     func create_alias_key(data):
-        var alias_key = object_keeper.find_custom(is_same.bind(data))
+        var data_type = Util.inferType(data, true)
+        # Even slower # if data is not Object: data_type+str(data.size())
+        var alias_key = object_keeper.get_or_add(data_type, []).find_custom(is_same.bind(data))
         if alias_key == -1:
-            alias_key = object_keeper.size()
-            object_keeper.append(data)
+            alias_key = "%s_%s" % [data_type, object_keeper[data_type].size()]
+            object_keeper[data_type].append(data)
+        else:
+            alias_key = "%s_%s" % [data_type, alias_key]
         return alias_key
 
     static func add_representer(data_type, representer):
@@ -3583,8 +3591,7 @@ class Representer:
         else:
             var _init_args_dict = {}
             var instance_property_list = data.get_property_list().map(func(dict): return dict.name)
-            var sml = data.get_script().get_script_method_list()
-            var _init_args_names = sml.get(sml.find_custom(func(dict): return dict.name == "_init")).args.map(func(dict): return dict.name)
+            var _init_args_names = Util.get_init_args_names(data.get_script())
             for key in _init_args_names:
                 if key.trim_prefix("p_") in instance_property_list:
                     _init_args_dict.set(key.trim_prefix("p_"), data[key.trim_prefix("p_")])
@@ -5003,3 +5010,51 @@ class StreamWrapper:
 
     func print_data():
         print(cache)
+
+class Util:
+    static func get_init_args_names(cls: Script) -> Array[String]:
+        var sml = cls.get_script_method_list()
+        var _init_args_names = sml.get(sml.find_custom(func(dict): return dict.name == "_init")).args.map(func(dict): return dict.name)
+        return _init_args_names
+
+    static func inferType(data, deepScan:=false) -> String:
+        if data is Object:
+            if data.get_script()!=null and data.get_script().get_global_name() != "":
+                return data.get_script().get_global_name() 
+            else: return data.get_class()
+
+        elif deepScan:
+            if data is Array and data.is_typed():
+                if type_string(data.get_typed_builtin()) != "Object":
+                    return type_string(typeof(data)) + "[%s]" % type_string(data.get_typed_builtin())
+                else:
+                    if data.get_typed_script()!=null and data.get_typed_script().get_global_name() != "":
+                        return type_string(typeof(data)) + "[%s]" % data.get_typed_script().get_global_name()
+                    else:
+                        return type_string(typeof(data)) + "[%s]" % data.get_typed_class_name()
+
+            elif data is Dictionary and data.is_typed():
+                var key_type := "" if data.is_typed_key() else "Variant"
+                var value_type :="" if data.is_typed_value() else "Variant"
+
+                if data.is_typed_key():
+                    if type_string(data.get_typed_key_builtin()) != "Object":
+                        key_type = type_string(data.get_typed_key_builtin())
+                    else:
+                        if data.get_typed_key_script()!=null and data.get_typed_key_script().get_global_name() != "":
+                            key_type = data.get_typed_key_script().get_global_name()
+                        else:
+                            key_type = data.get_typed_key_class_name()
+
+                if data.is_typed_value():
+                    if type_string(data.get_typed_value_builtin()) != "Object":
+                        value_type = type_string(data.get_typed_value_builtin())
+                    else:
+                        if data.get_typed_value_script()!=null and data.get_typed_value_script().get_global_name() != "":
+                            value_type = data.get_typed_value_script().get_global_name()
+                        else:
+                            value_type = data.get_typed_value_class_name()
+
+                return type_string(typeof(data)) + "[%s, %s]" %[key_type, value_type]
+
+        return type_string(typeof(data))

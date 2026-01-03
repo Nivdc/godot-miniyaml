@@ -1,6 +1,6 @@
 # MiniYAML
 
-> ⚠️ **Experimental / Unstable (v0.1.2)**
+> ⚠️ **Experimental / Unstable (v0.1.3)**
 >
 > This is an early preview release.  
 > Although most PyYAML features are implemented, the project has not yet  
@@ -27,12 +27,8 @@ If you want a more stable plugin, you should try it.
 Requires godot **4.5** or higher.  
 Porting it to an older version of godot is entirely possible, but I want to try out some new features while porting this plugin. So... that's it.
 
-- You can use it simply by [downloading](https://github.com/Nivdc/godot-miniyaml/releases/download/v0.1.2/addons.zip) the `addons.zip` file from the Releases page and then extracting it to your project folder.  
-- Or, you can download this Git repository and copy the `addons` folder into your project.  
-**Just remember to replace `soft_assert` with `assert` on line 130 of `miniyaml.gd`.**
-- Or, you can directly download `addons/miniyaml/miniyaml.gd` to your project and then use it like an autoloaded singleton class.  
-**Just remember to replace `soft_assert` with `assert` on line 130 of `miniyaml.gd`.**
-
+- You can use it simply by [downloading](https://github.com/Nivdc/godot-miniyaml/releases/download/v0.1.3/addons.zip) the `addons.zip` file from the Releases page and then extracting it to your project folder.  You should use this file since it solves the namespace pollution problem.
+- For those who want to embed this plugin, you should download the repository, replace the prefix in the `build_dist.py` script, run it, and use the generated script as a regular class to solve the same problem.
 
 ## Quick Usage
 
@@ -41,8 +37,8 @@ Porting it to an older version of godot is entirely possible, but I want to try 
 var data = YAML.load("key: value\nlist:\n  - item1\n  - item2")
 # # Or, For multiple documents
 # var data = YAML.load_all("key: value\nlist:\n  - item1\n  - item2")
-# # Or, 
-# var data = YAML.parse("key: value\nlist:\n  - item1\n  - item2").get_data()
+# # Or, If you need to handle errors
+# var result = YAML.parse("key: value\nlist:\n  - item1\n  - item2")
 
 
 print(data.key)  # Outputs: value
@@ -58,7 +54,7 @@ YAML.save_file(file_data, "user://dumped_supported_syntax.yaml")
 
 # Custom class
 YAML.register_class(MyCustomClass)
-# # Or, 
+# # Or, If you need to register custom serialization/deserialization functions
 # YAML.register_class(MyCustomClass, "to_dict", "_from_dict")
 YAML.unregister_class(MyCustomClass)
 ```
@@ -68,12 +64,11 @@ For more information, be sure to check out
 [Supported variable types](./doc/supported_syntax.yaml)  
 [Dump Example](./doc/dumped_supported_syntax.yaml)  
 
-[Namespace pollution](https://github.com/Nivdc/godot-miniyaml/issues/1)
-
 ## Known issues
-- If you are still using `soft_assert` in your project, you might get stuck in a dangerous infinite loop when loading some faulty files.  
-`soft_assert` is purely for testing purposes; you should use `assert`.  
-Replace it in `miniyaml.gd` line **130**
+- When loading certain (very rare) malformed YAML files, this plugin may enter an infinite loop.
+This is caused by differences between Python’s exception-based error handling and Godot’s error handling model.
+Some safeguards have already been implemented to reduce the risk of this issue. However, a complete solution requires architectural changes, which will take additional time.
+If you encounter such a case, please consider reporting it along with the problematic YAML file.
 
 - Some error report messages are very ugly.  
 Yeah... because I really don't have the patience to copy error messages one-to-one.  
@@ -94,7 +89,7 @@ And if you want to fix a bug, [ruamel-yaml](https://yaml.dev/doc/ruamel.yaml/) m
 ## Expected test failure
 This plugin uses the official [YAML Test Suite](https://github.com/yaml/yaml-test-suite) for testing.
 
-In the current version `0.1.2`, 
+In the current version `0.1.3`, 
 
 The event test (used to test the `Scanner` and `Parser`) results are [consistent with PyYAML](https://matrix.yaml.info/).  
 Passed: **329**, Filed: **73**.
