@@ -1,3 +1,5 @@
+![Creación_de_Adán_(Miguel_Ángel)_modified_version](./Creación_de_Adán_(Miguel_Ángel)_modified_version.jpg)
+
 > The Prophet cries out:  
 > Behold — behold!  
 > **YAML**, the god of data serialization, has descended upon this world,  
