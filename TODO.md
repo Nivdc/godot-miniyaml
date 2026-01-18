@@ -1,5 +1,5 @@
-I promise everything on this list will eventually be implemented (as long as I’m still alive 😅)—but I can’t say when.
-If you need it tomorrow, you'll have to do it yourself.
+I promise everything on this list will eventually be implemented (as long as I’m still alive 😅)—but I can’t say when.  
+You need it tomorrow? you'll have to do it yourself.
 
 TODO:  
 
